@@ -1,11 +1,16 @@
 from threading import Thread
 
+from git import Repo
+
 
 class GitSource(Thread):
-    def __init__(self, username, password):
+    def __init__(self, username, password, key_path="~/.ssh/id_rsa"):
         super().__init__()
         self._username = username
         self._password = password
+        self._key_path = key_path
 
-    def clone_repo(self, url):
-        pass
+    def clone_repo(self, repo_name, local_path="./repo/"):
+        cloned_repo = Repo.clone_from(repo_name, local_path,
+                                      env={'GIT_SSH_COMMAND': 'ssh -i {}'.format(self._key_path)})
+        return cloned_repo
