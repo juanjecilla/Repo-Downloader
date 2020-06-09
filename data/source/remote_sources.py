@@ -21,7 +21,7 @@ class BitbucketSource(GitSource):
         else:
             url = url + workspace
 
-        return self._get_repo_list(url, paginated)
+        return self._get_api_results(url, paginated)
 
     def get_user_info(self):
         url = self.BASE_API_URL + "user/"
@@ -32,16 +32,24 @@ class BitbucketSource(GitSource):
         else:
             return None
 
-    def _get_repo_list(self, url, paginated):
+    def _get_api_results(self, url, full_results):
         raw_request = requests.get(url, auth=HTTPBasicAuth(self._username, self._password))
-        dict_request = json.loads(raw_request.content.decode('utf-8'))
-        repos = dict_request['values']
+        if raw_request.status_code == 200:
+            dict_request = json.loads(raw_request.content.decode('utf-8'))
+            repos = dict_request['values']
 
-        if paginated:
-            if "next" in dict_request:
-                repos.extend(self._get_repo_list(dict_request["next"], paginated))
+            if full_results:
+                if "next" in dict_request:
+                    repos.extend(self._get_api_results(dict_request["next"], full_results))
 
-        return repos
+            return repos
+        else:
+            return None
+
+    def get_repositories_by_permission(self, role="member"):
+        url = self.BASE_API_URL + "user/permissions/repositories?role={}".format(role)
+        results = self._get_api_results(url, True)
+        return results
 
     @property
     def current_user(self):

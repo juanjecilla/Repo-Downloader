@@ -20,4 +20,4 @@ if not manager.current_user:
     print("Error connecting with remote origin")
     exit(1)
 
-print(manager.get_repo_list(workspace))
+repositories = manager.get_repositories_by_permission()
