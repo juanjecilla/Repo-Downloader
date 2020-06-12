@@ -21,7 +21,7 @@ class BitbucketSource(GitSource):
         else:
             url = url + workspace
 
-        return self._get_api_results(url, paginated)
+        return self._get_api_paginated_results(url, paginated)
 
     def get_user_info(self):
         url = self.BASE_API_URL + "user/"
@@ -32,25 +32,43 @@ class BitbucketSource(GitSource):
         else:
             return None
 
-    def _get_api_results(self, url, full_results):
+    def _get_api_paginated_results(self, url, full_results):
         raw_request = requests.get(url, auth=HTTPBasicAuth(self._username, self._password))
         if raw_request.status_code == 200:
             dict_request = json.loads(raw_request.content.decode('utf-8'))
-            repos = dict_request['values']
+            values = dict_request['values']
 
             if full_results:
                 if "next" in dict_request:
-                    repos.extend(self._get_api_results(dict_request["next"], full_results))
+                    values.extend(self._get_api_paginated_results(dict_request["next"], full_results))
 
-            return repos
+            return values
+        else:
+            return None
+
+    def _get_api_result(self, url):
+        raw_request = requests.get(url, auth=HTTPBasicAuth(self._username, self._password))
+        if raw_request.status_code == 200:
+            value = json.loads(raw_request.content.decode('utf-8'))
+            return value
         else:
             return None
 
     def get_repositories_by_permission(self, role="member"):
         url = self.BASE_API_URL + "user/permissions/repositories?role={}".format(role)
-        results = self._get_api_results(url, True)
+        return self._get_api_paginated_results(url, True)
+
+    def get_branches(self, workspace, name):
+        url = self.BASE_API_URL + "repositories/{}/{}/refs/branches".format(workspace, name)
+        results = self._get_api_paginated_results(url, True)
         return results
+
 
     @property
     def current_user(self):
         return self._current_user
+
+    def get_repository(self, workspace, name):
+        url = self.BASE_API_URL + "repositories/{}/{}".format(workspace, name)
+        return self._get_api_result(url)
+
