@@ -1,6 +1,6 @@
 # Repo-Downloader
 
-Python CLI utility to download repositories from remote origins with autodetection, multibranch support and zipping. Very useful to create a general backup of yout projects.
+Python CLI utility to download repositories from remote origins with autodetection, multibranch support and zipping. Very useful to create a general backup of your projects.
 
 ## Roadmap
 - [x] Bitbucket API support.
@@ -8,7 +8,7 @@ Python CLI utility to download repositories from remote origins with autodetecti
 - [ ] Gitlab API support.
 - [ ] Enable multibranching.
 - [ ] Zip all downloaded repositories.
-    + [ ] ~~~~Create a zip by branch.
+    + [ ] Create a zip by branch.
 - [ ] Interactive shell options.
 - [ ] Select skip projects.
 - [ ] Multiplatform executable.
@@ -21,7 +21,7 @@ Python CLI utility to download repositories from remote origins with autodetecti
 
 ## Remotes
 ### Bitbucket
-Allows to download all repos from an account. 
+Allows to download all repos from an account using [Bitbucket API](https://developer.atlassian.com/cloud/bitbucket/rest/intro/#authentication).
 
 Needs to create an App Password at Bitbucket: https://bitbucket.org/account/settings/app-passwords/
 Also, you need to create an ssh key.
