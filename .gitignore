@@ -130,3 +130,5 @@ dmypy.json
 
 # Pycharm Stuff
 .idea
+local.properties
+repo/
