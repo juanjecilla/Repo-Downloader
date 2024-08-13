@@ -14,3 +14,7 @@ class GitSource(Thread):
         cloned_repo = Repo.clone_from(repo_url, local_path,
                                       env={'GIT_SSH_COMMAND': 'ssh -i {}'.format(self._key_path)})
         return cloned_repo
+
+    def open_repo(self, local_url):
+        local_repo = Repo(local_url)
+        return local_repo

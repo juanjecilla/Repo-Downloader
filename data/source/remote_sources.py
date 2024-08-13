@@ -13,7 +13,7 @@ class BitbucketSource(GitSource):
         super().__init__(username, password)
         self._current_user = self.get_user_info()
 
-    def get_repo_list(self, workspace=None, paginated=False, page=-1):
+    def get_repo_list(self, workspace=None, paginated=False):
         url = self.BASE_API_URL + "repositories/"
 
         if workspace is None:
@@ -58,11 +58,10 @@ class BitbucketSource(GitSource):
         url = self.BASE_API_URL + "user/permissions/repositories?role={}".format(role)
         return self._get_api_paginated_results(url, True)
 
-    def get_branches(self, workspace, name):
-        url = self.BASE_API_URL + "repositories/{}/{}/refs/branches".format(workspace, name)
+    def get_branches(self, name):
+        url = self.BASE_API_URL + "repositories/{}/refs/branches".format(name)
         results = self._get_api_paginated_results(url, True)
         return results
-
 
     @property
     def current_user(self):
@@ -71,4 +70,3 @@ class BitbucketSource(GitSource):
     def get_repository(self, workspace, name):
         url = self.BASE_API_URL + "repositories/{}/{}".format(workspace, name)
         return self._get_api_result(url)
-
