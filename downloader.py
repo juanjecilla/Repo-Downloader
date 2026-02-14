@@ -15,7 +15,13 @@ from utils.errors import (
     RepositorySyncError,
 )
 from utils.log_utils import NullLogger, RunLogger
-from utils.repo_utils import build_backup_paths, is_archived_repository, parse_repository_entry
+from utils.repo_utils import (
+    build_backup_paths,
+    is_archived_repository,
+    normalize_repo_patterns,
+    parse_repository_entry,
+    repository_matches_filters,
+)
 
 PROVIDER_CLASS_PATHS = {
     "bitbucket": ("data.source.remote_sources", "BitbucketSource"),
@@ -89,6 +95,24 @@ def build_parser():
         type=str,
         default=None,
         help="Optional path to write logs in the selected format.",
+    )
+    parser.add_argument(
+        "--include",
+        action="append",
+        default=None,
+        help=(
+            "Include repository full-name patterns (glob). "
+            "Can be repeated or comma-separated."
+        ),
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=None,
+        help=(
+            "Exclude repository full-name patterns (glob). "
+            "Can be repeated or comma-separated."
+        ),
     )
     return parser
 
@@ -351,6 +375,29 @@ def run_backup(args, provider, git_source, logger=None):
             summary_repo = parsed["repository"]
             repository_for_log = full_name
 
+            matched_filters, filter_reason, filter_detail = repository_matches_filters(
+                full_name=full_name,
+                include_patterns=args.include,
+                exclude_patterns=args.exclude,
+            )
+            if not matched_filters:
+                dry_run_prefix = "[DRY-RUN] " if args.dry_run else ""
+                emit_text(
+                    logger,
+                    f"\t{dry_run_prefix}Skipping repository by filter: {filter_detail}.",
+                )
+                logger.event(
+                    "repository.skip",
+                    outcome="skipped",
+                    provider=args.provider,
+                    repository=full_name,
+                    mode=args.mode,
+                    reason=filter_reason,
+                    detail=filter_detail,
+                )
+                stats["skipped"] += 1
+                continue
+
             logger.event(
                 "repository.start",
                 outcome="start",
@@ -452,6 +499,8 @@ def run_backup(args, provider, git_source, logger=None):
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.include = normalize_repo_patterns(args.include)
+    args.exclude = normalize_repo_patterns(args.exclude)
     logger = RunLogger(log_format=args.log_format, log_file=args.log_file)
 
     logger.event(
@@ -465,6 +514,8 @@ def main(argv=None):
         include_archived=args.include_archived,
         ssh_key_path=args.ssh_key_path,
         token_env=args.token_env,
+        include_patterns=args.include,
+        exclude_patterns=args.exclude,
         log_format=args.log_format,
     )
 

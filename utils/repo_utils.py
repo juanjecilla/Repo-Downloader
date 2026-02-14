@@ -1,3 +1,4 @@
+import fnmatch
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -74,3 +75,38 @@ def build_backup_paths(
         "mirror_path": os.path.join(base_dir, f"{repository_name}.git"),
         "working_path": os.path.join(base_dir, repository_name),
     }
+
+
+def normalize_repo_patterns(raw_patterns: Optional[List[str]]) -> List[str]:
+    """Normalize include/exclude patterns from CLI values."""
+    normalized: List[str] = []
+    if not raw_patterns:
+        return normalized
+
+    for raw_pattern in raw_patterns:
+        for part in raw_pattern.split(","):
+            cleaned = part.strip()
+            if cleaned:
+                normalized.append(cleaned)
+    return normalized
+
+
+def repository_matches_filters(
+    full_name: str,
+    include_patterns: Optional[List[str]],
+    exclude_patterns: Optional[List[str]],
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """Evaluate include/exclude pattern filtering for a repository."""
+    include = include_patterns or []
+    exclude = exclude_patterns or []
+
+    if include and not any(fnmatch.fnmatchcase(full_name, pattern) for pattern in include):
+        detail = "does not match include patterns"
+        return False, "include_miss", detail
+
+    for pattern in exclude:
+        if fnmatch.fnmatchcase(full_name, pattern):
+            detail = f"matches exclude pattern '{pattern}'"
+            return False, "exclude_match", detail
+
+    return True, None, None

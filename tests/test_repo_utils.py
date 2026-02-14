@@ -5,7 +5,9 @@ from utils.repo_utils import (
     extract_workspace_and_name,
     filter_repositories_by_workspace,
     is_archived_repository,
+    normalize_repo_patterns,
     parse_repository_entry,
+    repository_matches_filters,
 )
 
 
@@ -43,6 +45,40 @@ class TestRepoUtils(unittest.TestCase):
         self.assertEqual("./backups/bitbucket/acme", paths["base_dir"])
         self.assertEqual("./backups/bitbucket/acme/repo.git", paths["mirror_path"])
         self.assertEqual("./backups/bitbucket/acme/repo", paths["working_path"])
+
+    def test_normalize_repo_patterns_expands_comma_values(self):
+        patterns = normalize_repo_patterns(["acme/*, other/*", "team/repo"])
+        self.assertEqual(["acme/*", "other/*", "team/repo"], patterns)
+
+    def test_repository_matches_filters_include_miss(self):
+        matches, reason, detail = repository_matches_filters(
+            full_name="acme/repo-one",
+            include_patterns=["other/*"],
+            exclude_patterns=[],
+        )
+        self.assertFalse(matches)
+        self.assertEqual("include_miss", reason)
+        self.assertEqual("does not match include patterns", detail)
+
+    def test_repository_matches_filters_exclude_match(self):
+        matches, reason, detail = repository_matches_filters(
+            full_name="acme/repo-one",
+            include_patterns=["acme/*"],
+            exclude_patterns=["acme/repo-*"],
+        )
+        self.assertFalse(matches)
+        self.assertEqual("exclude_match", reason)
+        self.assertIn("matches exclude pattern", detail)
+
+    def test_repository_matches_filters_include_then_exclude_precedence(self):
+        matches, reason, detail = repository_matches_filters(
+            full_name="acme/repo-one",
+            include_patterns=["acme/*"],
+            exclude_patterns=["other/*"],
+        )
+        self.assertTrue(matches)
+        self.assertIsNone(reason)
+        self.assertIsNone(detail)
 
 
 if __name__ == "__main__":
