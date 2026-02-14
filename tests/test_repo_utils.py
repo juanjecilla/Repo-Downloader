@@ -50,6 +50,50 @@ class TestRepoUtils(unittest.TestCase):
         patterns = normalize_repo_patterns(["acme/*, other/*", "team/repo"])
         self.assertEqual(["acme/*", "other/*", "team/repo"], patterns)
 
+    def test_normalize_repo_patterns_lowercases_values(self):
+        patterns = normalize_repo_patterns(["Acme/*, TEAM/Repo"])
+        self.assertEqual(["acme/*", "team/repo"], patterns)
+
+    def test_repository_matches_filters_no_filters(self):
+        matches, reason, detail = repository_matches_filters(
+            full_name="acme/repo-one",
+            include_patterns=[],
+            exclude_patterns=[],
+        )
+        self.assertTrue(matches)
+        self.assertIsNone(reason)
+        self.assertIsNone(detail)
+
+    def test_repository_matches_filters_exclude_only_match(self):
+        matches, reason, detail = repository_matches_filters(
+            full_name="acme/repo-one",
+            include_patterns=[],
+            exclude_patterns=["other/*"],
+        )
+        self.assertTrue(matches)
+        self.assertIsNone(reason)
+        self.assertIsNone(detail)
+
+    def test_repository_matches_filters_exact_pattern_match(self):
+        matches, reason, detail = repository_matches_filters(
+            full_name="acme/specific-repo",
+            include_patterns=["acme/specific-repo"],
+            exclude_patterns=[],
+        )
+        self.assertTrue(matches)
+        self.assertIsNone(reason)
+        self.assertIsNone(detail)
+
+    def test_repository_matches_filters_case_insensitive(self):
+        matches, reason, detail = repository_matches_filters(
+            full_name="AcMe/Repo-One",
+            include_patterns=["acme/*"],
+            exclude_patterns=["ACME/private-*"],
+        )
+        self.assertTrue(matches)
+        self.assertIsNone(reason)
+        self.assertIsNone(detail)
+
     def test_repository_matches_filters_include_miss(self):
         matches, reason, detail = repository_matches_filters(
             full_name="acme/repo-one",

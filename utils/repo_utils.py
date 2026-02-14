@@ -85,7 +85,7 @@ def normalize_repo_patterns(raw_patterns: Optional[List[str]]) -> List[str]:
 
     for raw_pattern in raw_patterns:
         for part in raw_pattern.split(","):
-            cleaned = part.strip()
+            cleaned = part.strip().lower()
             if cleaned:
                 normalized.append(cleaned)
     return normalized
@@ -97,15 +97,18 @@ def repository_matches_filters(
     exclude_patterns: Optional[List[str]],
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """Evaluate include/exclude pattern filtering for a repository."""
-    include = include_patterns or []
-    exclude = exclude_patterns or []
+    normalized_full_name = full_name.lower()
+    include = [pattern.lower() for pattern in (include_patterns or [])]
+    exclude = [pattern.lower() for pattern in (exclude_patterns or [])]
 
-    if include and not any(fnmatch.fnmatchcase(full_name, pattern) for pattern in include):
+    if include and not any(
+        fnmatch.fnmatchcase(normalized_full_name, pattern) for pattern in include
+    ):
         detail = "does not match include patterns"
         return False, "include_miss", detail
 
     for pattern in exclude:
-        if fnmatch.fnmatchcase(full_name, pattern):
+        if fnmatch.fnmatchcase(normalized_full_name, pattern):
             detail = f"matches exclude pattern '{pattern}'"
             return False, "exclude_match", detail
 
