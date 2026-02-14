@@ -1,30 +1,63 @@
 # Repo-Downloader
 
-Python CLI utility to download repositories from remote origins with autodetection, multibranch support and zipping. Very useful to create a general backup of your projects.
+Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bitbucket support hardened for repeatable backups.
+
+## Features
+- Provider-aware CLI (`bitbucket`, `github`, `gitlab`; GitHub/GitLab are stubs for future expansion).
+- Backup modes:
+  - `mirror`: bare mirror repositories for full history/ref backup.
+  - `working`: normal working copies with branch checkout.
+  - `both`: run mirror and working backups in one pass.
+- Workspace filtering and optional archived-repository inclusion.
+- Non-interactive auth via environment variable (`--token-env`) with prompt fallback.
+- Deterministic output layout under `./backups` by default.
+- Dry-run mode to preview changes before cloning/fetching.
+
+## Quick Start
+1. Install dependencies:
+   ```bash
+   python3 -m pip install -r requirements.txt
+   ```
+2. Create a Bitbucket app password:
+   [Bitbucket App Passwords](https://bitbucket.org/account/settings/app-passwords/)
+3. Ensure SSH access to repositories is configured.
+4. Run:
+   ```bash
+   python3 downloader.py --provider bitbucket --username <bitbucket-user> --mode both
+   ```
+
+## Example
+```bash
+export BITBUCKET_APP_PASSWORD="***"
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --workspace my-workspace \
+  --mode both \
+  --output-dir ./backups
+```
+
+## Output Layout
+- Mirror repo: `<output>/<provider>/<workspace>/<repo>.git`
+- Working copy: `<output>/<provider>/<workspace>/<repo>/`
+
+With default options this becomes:
+- `./backups/bitbucket/<workspace>/<repo>.git`
+- `./backups/bitbucket/<workspace>/<repo>/`
+
+## Documentation
+- Documentation index: `docs/INDEX.md`
+- Full usage and CLI reference: `docs/USAGE.md`
+- Operations and restore/runbook guidance: `docs/OPERATIONS.md`
+- Future steps and phased roadmap: `docs/FUTURE_STEPS.md`
+- Comprehensive feature catalog for future agents: `docs/FEATURE_CATALOG.md`
+- Agent file-map and execution workflow: `docs/AGENT_IMPLEMENTATION_GUIDE.md`
+
+## Testing
+```bash
+python3 -m unittest discover -s tests -p "test_*.py"
+```
 
 ## Roadmap
-- [x] Bitbucket API support.
-- [ ] Github API support.
-- [ ] Gitlab API support.
-- [ ] Enable multibranching.
-- [ ] Zip all downloaded repositories.
-    + [ ] Create a zip by branch.
-- [ ] Interactive shell options.
-- [ ] Select skip projects.
-- [ ] Multiplatform executable.
-- [ ] GUI?
-
-## Libraries
-- GitPython
-- requests
-
-
-## Remotes
-### Bitbucket
-Allows to download all repos from an account using [Bitbucket API](https://developer.atlassian.com/cloud/bitbucket/rest/intro/#authentication).
-
-Needs to create an App Password at Bitbucket: https://bitbucket.org/account/settings/app-passwords/
-Also, you need to create an ssh key.
-
-### GitHub
-TBD
+Roadmap and future implementation steps were moved to `docs/FUTURE_STEPS.md` and `docs/FEATURE_CATALOG.md`.

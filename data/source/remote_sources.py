@@ -1,72 +1,151 @@
-import json
-
 import requests
+from requests.adapters import HTTPAdapter
 from requests.auth import HTTPBasicAuth
+from urllib3.util.retry import Retry
 
-from data.source.git_source import GitSource
+from data.source.provider_interface import RemoteProvider
+from utils.errors import AuthenticationError, ProviderNotImplementedError, RemoteAPIError
+from utils.repo_utils import filter_repositories_by_workspace
 
 
-class BitbucketSource(GitSource):
+class BitbucketSource(RemoteProvider):
+    provider_name = "bitbucket"
     BASE_API_URL = "https://api.bitbucket.org/2.0/"
 
-    def __init__(self, username, password):
-        super().__init__(username, password)
-        self._current_user = self.get_user_info()
+    def __init__(self, username, password, timeout=20, retries=3):
+        self._username = username
+        self._password = password
+        self._timeout = timeout
+        self._session = requests.Session()
+        self._session.auth = HTTPBasicAuth(self._username, self._password)
 
-    def get_repo_list(self, workspace=None, paginated=False):
-        url = self.BASE_API_URL + "repositories/"
+        retry = Retry(
+            total=retries,
+            connect=retries,
+            read=retries,
+            status=retries,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods={"GET"},
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self._session.mount("https://", adapter)
 
-        if workspace is None:
-            url = url + self._username
-        else:
-            url = url + workspace
+        self._current_user = None
+        self._auth_error = None
+        try:
+            self._current_user = self.get_user_info()
+        except (AuthenticationError, RemoteAPIError) as exc:
+            self._auth_error = str(exc)
 
-        return self._get_api_paginated_results(url, paginated)
+    def _request_json(self, url):
+        try:
+            response = self._session.get(url, timeout=self._timeout)
+        except requests.RequestException as exc:
+            raise RemoteAPIError(f"Request to '{url}' failed: {exc}") from exc
+
+        if response.status_code in (401, 403):
+            raise AuthenticationError(f"Authentication failed for '{url}' (status {response.status_code})")
+        if response.status_code >= 400:
+            raise RemoteAPIError(f"Request to '{url}' failed with status {response.status_code}")
+
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise RemoteAPIError(f"Invalid JSON received from '{url}'") from exc
+
+    def _get_paginated_results(self, url):
+        values = []
+        next_url = url
+
+        while next_url:
+            payload = self._request_json(next_url)
+            page_values = payload.get("values")
+            if page_values is None:
+                raise RemoteAPIError(f"Paginated endpoint '{next_url}' did not include 'values'")
+            values.extend(page_values)
+            next_url = payload.get("next")
+
+        return values
 
     def get_user_info(self):
-        url = self.BASE_API_URL + "user/"
-        raw_request = requests.get(url, auth=HTTPBasicAuth(self._username, self._password))
-        if raw_request.status_code == 200:
-            dict_request = json.loads(raw_request.content.decode('utf-8'))
-            return dict_request
-        else:
-            return None
+        return self._request_json(self.BASE_API_URL + "user/")
 
-    def _get_api_paginated_results(self, url, full_results):
-        raw_request = requests.get(url, auth=HTTPBasicAuth(self._username, self._password))
-        if raw_request.status_code == 200:
-            dict_request = json.loads(raw_request.content.decode('utf-8'))
-            values = dict_request['values']
-
-            if full_results:
-                if "next" in dict_request:
-                    values.extend(self._get_api_paginated_results(dict_request["next"], full_results))
-
-            return values
-        else:
-            return None
-
-    def _get_api_result(self, url):
-        raw_request = requests.get(url, auth=HTTPBasicAuth(self._username, self._password))
-        if raw_request.status_code == 200:
-            value = json.loads(raw_request.content.decode('utf-8'))
-            return value
-        else:
-            return None
-
-    def get_repositories_by_permission(self, role="member"):
+    def list_repositories(self, workspace=None, role="member"):
         url = self.BASE_API_URL + "user/permissions/repositories?role={}".format(role)
-        return self._get_api_paginated_results(url, True)
+        repositories = self._get_paginated_results(url)
+        return filter_repositories_by_workspace(repositories, workspace)
 
-    def get_branches(self, name):
-        url = self.BASE_API_URL + "repositories/{}/refs/branches".format(name)
-        results = self._get_api_paginated_results(url, True)
-        return results
+    def list_branches(self, full_name):
+        url = self.BASE_API_URL + "repositories/{}/refs/branches".format(full_name)
+        return self._get_paginated_results(url)
 
     @property
     def current_user(self):
         return self._current_user
 
+    def auth_ok(self):
+        return self._current_user is not None and self._auth_error is None
+
+    @property
+    def auth_error(self):
+        return self._auth_error
+
     def get_repository(self, workspace, name):
         url = self.BASE_API_URL + "repositories/{}/{}".format(workspace, name)
-        return self._get_api_result(url)
+        return self._request_json(url)
+
+    # Legacy aliases kept for compatibility with previous script names.
+    def get_repo_list(self, workspace=None, paginated=False):
+        _ = paginated  # Legacy argument preserved for backward compatibility.
+        return self.list_repositories(workspace=workspace)
+
+    def get_repositories_by_permission(self, role="member"):
+        return self.list_repositories(role=role)
+
+    def get_branches(self, name):
+        return self.list_branches(name)
+
+
+class _NotImplementedProvider(RemoteProvider):
+    provider_name = "not-implemented"
+
+    def __init__(self, provider_name):
+        self._provider_name = provider_name
+        self._auth_error = f"Provider '{provider_name}' is not implemented yet."
+
+    def _raise_not_implemented(self):
+        raise ProviderNotImplementedError(self._auth_error)
+
+    def get_user_info(self):
+        self._raise_not_implemented()
+
+    def list_repositories(self, workspace=None, role="member"):
+        self._raise_not_implemented()
+
+    def get_repository(self, workspace, name):
+        self._raise_not_implemented()
+
+    def list_branches(self, full_name):
+        self._raise_not_implemented()
+
+    def auth_ok(self):
+        return False
+
+    @property
+    def auth_error(self):
+        return self._auth_error
+
+
+class GitHubSource(_NotImplementedProvider):
+    provider_name = "github"
+
+    def __init__(self, *_args, **_kwargs):
+        super().__init__(self.provider_name)
+
+
+class GitLabSource(_NotImplementedProvider):
+    provider_name = "gitlab"
+
+    def __init__(self, *_args, **_kwargs):
+        super().__init__(self.provider_name)
