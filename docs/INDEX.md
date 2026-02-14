@@ -10,3 +10,4 @@ Use this as the entrypoint for all repository documentation.
 - `docs/FUTURE_STEPS.md`: phased sequence of future work.
 - `docs/FEATURE_CATALOG.md`: detailed feature backlog with file targets and acceptance criteria.
 - `docs/AGENT_IMPLEMENTATION_GUIDE.md`: file ownership map and standard feature workflow.
+- `AGENTS.md`: repository-level workflow and guardrails for future agents.

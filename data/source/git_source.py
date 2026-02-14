@@ -35,7 +35,9 @@ class GitSource:
             repo.git.remote("update", "--prune")
             return repo
         except GitCommandError as exc:
-            raise RepositorySyncError(f"Failed updating mirror repository at {local_path}: {exc}") from exc
+            raise RepositorySyncError(
+                f"Failed updating mirror repository at {local_path}: {exc}"
+            ) from exc
 
     def fetch_working_copy(self, local_path):
         repo = self.open_repo(local_path)
@@ -43,7 +45,9 @@ class GitSource:
             repo.remotes.origin.fetch(prune=True, tags=True)
             return repo
         except GitCommandError as exc:
-            raise RepositorySyncError(f"Failed fetching working repository at {local_path}: {exc}") from exc
+            raise RepositorySyncError(
+                f"Failed fetching working repository at {local_path}: {exc}"
+            ) from exc
 
     def checkout_branch(self, repo, branch_name):
         try:

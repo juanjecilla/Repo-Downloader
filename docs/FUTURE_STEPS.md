@@ -23,6 +23,9 @@ Definition of done:
 - Runs are safe against overlapping execution.
 - Scoped runs (repo filters + branch filters) are possible.
 
+Progress:
+- `F001` completed.
+
 ## Phase 2: Provider Expansion (P2)
 Goal: support multi-provider backups without changing CLI semantics.
 

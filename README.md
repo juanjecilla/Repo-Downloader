@@ -53,6 +53,7 @@ With default options this becomes:
 - Future steps and phased roadmap: `docs/FUTURE_STEPS.md`
 - Comprehensive feature catalog for future agents: `docs/FEATURE_CATALOG.md`
 - Agent file-map and execution workflow: `docs/AGENT_IMPLEMENTATION_GUIDE.md`
+- Repository automation/agent guardrails: `AGENTS.md`
 
 ## Testing
 ```bash

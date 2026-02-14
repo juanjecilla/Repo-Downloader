@@ -42,6 +42,8 @@ python3 downloader.py [options]
 - `--ssh-key-path`: SSH private key path, default `~/.ssh/id_rsa`.
 - `--role`: Provider role filter, default `member` (Bitbucket only).
 - `--token-env`: Environment variable containing token/app-password.
+- `--log-format`: Log format (`text` or `json`), default `text`.
+- `--log-file`: Optional file path where logs are written in the selected format.
 
 ## Backup Modes
 ### `mirror`
@@ -97,6 +99,17 @@ python3 downloader.py \
   --dry-run
 ```
 
+### JSON logs to file
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --log-format json \
+  --log-file ./logs/backup-run.jsonl
+```
+
 ## Restore Notes
 - Mirror restore:
   ```bash
@@ -106,7 +119,6 @@ python3 downloader.py \
 
 ## Known Limitations
 - GitHub and GitLab providers are currently stubs and intentionally return not-implemented status.
-- Structured JSON logs are not yet implemented.
 - Include/exclude repository pattern filters are not yet implemented.
 
 ## Exit Codes
