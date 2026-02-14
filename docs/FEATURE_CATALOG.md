@@ -12,7 +12,7 @@ Status values:
 
 ### F001 Structured Logging and Run Metadata
 - Priority: `next`
-- Status: `next`
+- Status: `done`
 - Goal: emit optional JSON lines logs with run ID, provider, repo, mode, action, duration, and outcome.
 - Files:
   - `downloader.py`

@@ -43,9 +43,20 @@ python3 downloader.py \
 ```
 
 ## Observability and Logs
-- Standard output includes per-repository actions and summary counters.
+- Default `text` logs include per-repository actions and summary counters.
+- `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
 - Investigate any `[ERROR]` or `[WARN]` lines immediately.
-- Capture command output to file for auditing:
+- Write structured logs to a file for auditing:
+  ```bash
+  python3 downloader.py \
+    --provider bitbucket \
+    --username my-user \
+    --token-env BITBUCKET_APP_PASSWORD \
+    --mode both \
+    --log-format json \
+    --log-file ./logs/backup-run.jsonl
+  ```
+- Capture text output with shell redirection:
   ```bash
   python3 downloader.py ... > backup.log 2>&1
   ```

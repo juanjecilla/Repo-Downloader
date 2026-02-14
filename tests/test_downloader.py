@@ -1,5 +1,6 @@
 import argparse
 import io
+import json
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 import downloader
 from utils.errors import ProviderConfigurationError
+from utils.log_utils import REDACTED_VALUE, RunLogger
 
 
 class _FakeProvider:
@@ -43,6 +45,24 @@ class _FakeGitSource:
         self.calls.append(("checkout_branch", branch_name))
 
 
+class _MemoryLogger:
+    log_format = "json"
+
+    def __init__(self):
+        self.events = []
+
+    def event(self, action, outcome="info", level="INFO", message=None, **fields):
+        event = {
+            "action": action,
+            "outcome": outcome,
+            "level": level,
+            "message": message,
+        }
+        event.update(fields)
+        self.events.append(event)
+        return event
+
+
 class TestDownloader(unittest.TestCase):
     def test_selected_modes(self):
         self.assertEqual(("mirror", "working"), downloader.selected_modes("both"))
@@ -61,11 +81,17 @@ class TestDownloader(unittest.TestCase):
                 "./backups",
                 "--role",
                 "member",
+                "--log-format",
+                "json",
+                "--log-file",
+                "./logs/run.log",
             ]
         )
         self.assertEqual("bitbucket", args.provider)
         self.assertEqual("mirror", args.mode)
         self.assertEqual("./backups", args.output_dir)
+        self.assertEqual("json", args.log_format)
+        self.assertEqual("./logs/run.log", args.log_file)
 
     def test_resolve_token_from_environment(self):
         with patch.dict("os.environ", {"TOKEN_ENV_NAME": "secret-token"}, clear=False):
@@ -99,15 +125,56 @@ class TestDownloader(unittest.TestCase):
         )
         provider = _FakeProvider()
         git_source = _FakeGitSource()
-
-        buffer = io.StringIO()
-        with redirect_stdout(buffer):
-            stats = downloader.run_backup(args, provider, git_source)
+        logger = _MemoryLogger()
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
 
         self.assertEqual(1, stats["processed"])
         self.assertEqual(1, stats["succeeded"])
         self.assertEqual([], git_source.calls)
-        self.assertIn("[DRY-RUN]", buffer.getvalue())
+        logged_actions = [event["action"] for event in logger.events]
+        self.assertIn("sync.mirror.clone", logged_actions)
+        self.assertIn("sync.working.clone", logged_actions)
+        self.assertIn("repository.finish", logged_actions)
+
+    def test_json_logger_outputs_parseable_events_with_required_fields(self):
+        buffer = io.StringIO()
+        logger = RunLogger(log_format="json", run_id="run-test")
+        with redirect_stdout(buffer):
+            logger.event(
+                "repository.start",
+                outcome="start",
+                provider="bitbucket",
+                repository="acme/example",
+                mode="both",
+            )
+        output_line = buffer.getvalue().strip()
+        parsed = json.loads(output_line)
+
+        self.assertEqual("repository.start", parsed["action"])
+        self.assertEqual("start", parsed["outcome"])
+        self.assertEqual("run-test", parsed["run_id"])
+        self.assertEqual("bitbucket", parsed["provider"])
+        self.assertEqual("acme/example", parsed["repository"])
+        self.assertEqual("both", parsed["mode"])
+        self.assertIn("timestamp", parsed)
+
+    def test_json_logger_redacts_sensitive_fields(self):
+        buffer = io.StringIO()
+        logger = RunLogger(log_format="json", run_id="run-test-redaction")
+        with redirect_stdout(buffer):
+            logger.event(
+                "run.start",
+                outcome="start",
+                token="super-secret-token",
+                ssh_key_path="/Users/secret/.ssh/id_rsa",
+                nested={"api_token": "another-secret"},
+            )
+        parsed = json.loads(buffer.getvalue().strip())
+
+        self.assertEqual(REDACTED_VALUE, parsed["token"])
+        self.assertEqual(REDACTED_VALUE, parsed["ssh_key_path"])
+        self.assertEqual(REDACTED_VALUE, parsed["nested"]["api_token"])
+        self.assertNotIn("super-secret-token", buffer.getvalue())
 
 
 if __name__ == "__main__":
