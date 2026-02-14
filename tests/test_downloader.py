@@ -47,6 +47,7 @@ class _FakeGitSource:
 
 class _MemoryLogger:
     log_format = "json"
+    run_id = "run-test-memory"
 
     def __init__(self):
         self.events = []
@@ -61,6 +62,9 @@ class _MemoryLogger:
         event.update(fields)
         self.events.append(event)
         return event
+
+    def close(self):
+        return None
 
 
 class TestDownloader(unittest.TestCase):
@@ -175,6 +179,13 @@ class TestDownloader(unittest.TestCase):
         self.assertEqual(REDACTED_VALUE, parsed["ssh_key_path"])
         self.assertEqual(REDACTED_VALUE, parsed["nested"]["api_token"])
         self.assertNotIn("super-secret-token", buffer.getvalue())
+
+    def test_null_logger_default_paths_do_not_raise(self):
+        token = "from-prompt"
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("getpass.getpass", return_value=token):
+                resolved = downloader.resolve_token(token_env=None, logger=None)
+        self.assertEqual(token, resolved)
 
 
 if __name__ == "__main__":

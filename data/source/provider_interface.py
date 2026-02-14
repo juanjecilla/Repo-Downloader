@@ -14,7 +14,11 @@ class RemoteProvider(ABC):
         """Return current authenticated user info, if available."""
 
     @abstractmethod
-    def list_repositories(self, workspace: Optional[str] = None, role: str = "member") -> List[Dict]:
+    def list_repositories(
+        self,
+        workspace: Optional[str] = None,
+        role: str = "member",
+    ) -> List[Dict]:
         """Return repository records available to the user."""
 
     @abstractmethod

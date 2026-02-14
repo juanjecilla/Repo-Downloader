@@ -1,0 +1,20 @@
+[MASTER]
+ignore=.git,__pycache__
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-many-arguments,
+    too-many-positional-arguments,
+    too-many-locals,
+    too-many-statements,
+    too-few-public-methods,
+    invalid-name,
+    unused-argument,
+    import-outside-toplevel,
+    consider-using-with
+
+[FORMAT]
+max-line-length=100

@@ -45,7 +45,10 @@ class BitbucketSource(RemoteProvider):
             raise RemoteAPIError(f"Request to '{url}' failed: {exc}") from exc
 
         if response.status_code in (401, 403):
-            raise AuthenticationError(f"Authentication failed for '{url}' (status {response.status_code})")
+            raise AuthenticationError(
+                f"Authentication failed for '{url}' "
+                f"(status {response.status_code})"
+            )
         if response.status_code >= 400:
             raise RemoteAPIError(f"Request to '{url}' failed with status {response.status_code}")
 
@@ -72,12 +75,12 @@ class BitbucketSource(RemoteProvider):
         return self._request_json(self.BASE_API_URL + "user/")
 
     def list_repositories(self, workspace=None, role="member"):
-        url = self.BASE_API_URL + "user/permissions/repositories?role={}".format(role)
+        url = f"{self.BASE_API_URL}user/permissions/repositories?role={role}"
         repositories = self._get_paginated_results(url)
         return filter_repositories_by_workspace(repositories, workspace)
 
     def list_branches(self, full_name):
-        url = self.BASE_API_URL + "repositories/{}/refs/branches".format(full_name)
+        url = f"{self.BASE_API_URL}repositories/{full_name}/refs/branches"
         return self._get_paginated_results(url)
 
     @property
@@ -92,7 +95,7 @@ class BitbucketSource(RemoteProvider):
         return self._auth_error
 
     def get_repository(self, workspace, name):
-        url = self.BASE_API_URL + "repositories/{}/{}".format(workspace, name)
+        url = f"{self.BASE_API_URL}repositories/{workspace}/{name}"
         return self._request_json(url)
 
     # Legacy aliases kept for compatibility with previous script names.

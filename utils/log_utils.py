@@ -25,6 +25,13 @@ class RunLogger:
                 os.makedirs(log_directory, exist_ok=True)
             self._log_file_handle = open(self._log_file_path, "a", encoding="utf-8")
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
     def close(self):
         if self._log_file_handle:
             self._log_file_handle.close()
@@ -39,13 +46,23 @@ class RunLogger:
             return REDACTED_VALUE
 
         if isinstance(value, dict):
-            return {nested_key: self._sanitize_value(nested_key, nested_value) for nested_key, nested_value in value.items()}
+            sanitized = {}
+            for nested_key, nested_value in value.items():
+                sanitized[nested_key] = self._sanitize_value(nested_key, nested_value)
+            return sanitized
         if isinstance(value, list):
-            return [self._sanitize_value(key_name, item) for item in value]
+            sanitized_list = []
+            for item in value:
+                sanitized_list.append(self._sanitize_value(key_name, item))
+            return sanitized_list
         return value
 
     def _sanitize_fields(self, fields):
-        return {key: self._sanitize_value(key, value) for key, value in fields.items() if value is not None}
+        sanitized = {}
+        for key, value in fields.items():
+            if value is not None:
+                sanitized[key] = self._sanitize_value(key, value)
+        return sanitized
 
     def _render_text_line(self, record):
         parts = [
@@ -77,18 +94,14 @@ class RunLogger:
         record.update(self._sanitize_fields(fields))
 
         if self.log_format == "json":
-            rendered_stdout = json.dumps(record, sort_keys=True)
+            rendered = json.dumps(record, sort_keys=True)
         else:
-            rendered_stdout = self._render_text_line(record)
+            rendered = self._render_text_line(record)
 
-        print(rendered_stdout)
+        print(rendered)
 
         if self._log_file_handle:
-            if self.log_format == "json":
-                rendered_file = json.dumps(record, sort_keys=True)
-            else:
-                rendered_file = self._render_text_line(record)
-            self._log_file_handle.write(rendered_file + "\n")
+            self._log_file_handle.write(rendered + "\n")
             self._log_file_handle.flush()
 
         return record

@@ -119,7 +119,6 @@ python3 downloader.py \
 
 ## Known Limitations
 - GitHub and GitLab providers are currently stubs and intentionally return not-implemented status.
-- Structured JSON logs are not yet implemented.
 - Include/exclude repository pattern filters are not yet implemented.
 
 ## Exit Codes

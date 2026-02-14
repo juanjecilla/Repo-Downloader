@@ -24,7 +24,10 @@ def parse_repository_entry(repository_entry: Dict) -> Dict:
     }
 
 
-def filter_repositories_by_workspace(repositories: List[Dict], workspace: Optional[str]) -> List[Dict]:
+def filter_repositories_by_workspace(
+    repositories: List[Dict],
+    workspace: Optional[str],
+) -> List[Dict]:
     if not workspace:
         return repositories
 
@@ -38,7 +41,10 @@ def filter_repositories_by_workspace(repositories: List[Dict], workspace: Option
     return filtered
 
 
-def is_archived_repository(summary_repository: Dict, extended_repository: Optional[Dict] = None) -> bool:
+def is_archived_repository(
+    summary_repository: Dict,
+    extended_repository: Optional[Dict] = None,
+) -> bool:
     candidates = [summary_repository]
     if extended_repository:
         candidates.append(extended_repository)
@@ -55,7 +61,12 @@ def is_archived_repository(summary_repository: Dict, extended_repository: Option
     return False
 
 
-def build_backup_paths(output_dir: str, provider: str, workspace: str, repository_name: str) -> Dict[str, str]:
+def build_backup_paths(
+    output_dir: str,
+    provider: str,
+    workspace: str,
+    repository_name: str,
+) -> Dict[str, str]:
     output_root = os.path.expanduser(output_dir)
     base_dir = os.path.join(output_root, provider, workspace)
     return {

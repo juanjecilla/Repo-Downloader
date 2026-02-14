@@ -103,17 +103,25 @@ def resolve_token(token_env, logger=None):
     if token_env:
         token = os.environ.get(token_env)
         if token:
-            logger.event("auth.token.source", outcome="success", token_env=token_env, source="environment")
+            logger.event(
+                "auth.token.source",
+                outcome="success",
+                token_env=token_env,
+                source="environment",
+            )
             return token
+        fallback_msg = (
+            f"Environment variable '{token_env}' was not set. Falling back to prompt."
+        )
         logger.event(
             "auth.token.source",
             outcome="fallback",
             level="WARNING",
             token_env=token_env,
             source="prompt",
-            message=f"Environment variable '{token_env}' was not set. Falling back to prompt.",
+            message=fallback_msg,
         )
-        emit_text(logger, f"Token environment variable '{token_env}' was not set. Falling back to prompt.")
+        emit_text(logger, fallback_msg)
     else:
         logger.event("auth.token.source", outcome="prompt", source="prompt")
     return getpass.getpass("Enter account token / app password: ")
@@ -131,7 +139,9 @@ def create_provider(args, token):
         raise ProviderConfigurationError(f"Unknown provider '{provider_name}'.")
 
     if provider_name == "bitbucket" and not args.username:
-        raise ProviderConfigurationError("Argument '--username' is required for provider 'bitbucket'.")
+        raise ProviderConfigurationError(
+            "Argument '--username' is required for provider 'bitbucket'."
+        )
 
     module_name, class_name = PROVIDER_CLASS_PATHS[provider_name]
     try:
@@ -199,7 +209,16 @@ def sync_mirror(git_source, clone_url, mirror_path, dry_run, logger, provider_na
         )
 
 
-def sync_working(git_source, provider, full_name, clone_url, working_path, dry_run, logger, provider_name):
+def sync_working(
+    git_source,
+    provider,
+    full_name,
+    clone_url,
+    working_path,
+    dry_run,
+    logger,
+    provider_name,
+):
     if dry_run:
         if os.path.isdir(working_path):
             emit_text(logger, f"\t[DRY-RUN] Would fetch working clone: {working_path}")
@@ -268,7 +287,11 @@ def sync_working(git_source, provider, full_name, clone_url, working_path, dry_r
         branch_name = branch.get("name")
         if not branch_name:
             continue
-        emit_text(logger, f"\t\tChecking out branch {branch_name} {branch_index + 1}/{len(branches)}")
+        emit_text(
+            logger,
+            f"\t\tChecking out branch {branch_name} "
+            f"{branch_index + 1}/{len(branches)}",
+        )
         branch_started_at = time.monotonic()
         try:
             git_source.checkout_branch(repo, branch_name)
@@ -314,7 +337,7 @@ def run_backup(args, provider, git_source, logger=None):
         mode=args.mode,
         repository_count=len(repositories),
     )
-    emit_text(logger, "{} repositories found!".format(len(repositories)))
+    emit_text(logger, f"{len(repositories)} repositories found!")
     stats = {"processed": 0, "succeeded": 0, "skipped": 0, "failed": 0}
 
     for index, repository_entry in enumerate(repositories):
@@ -340,7 +363,10 @@ def run_backup(args, provider, git_source, logger=None):
             emit_text(logger, f"Starting {repo_name} repository {index + 1}/{len(repositories)}")
             extended_repo = provider.get_repository(repo_workspace, repo_name)
             if extended_repo is None:
-                raise RemoteAPIError(f"Provider did not return details for repository '{full_name}'")
+                error_msg = (
+                    f"Provider did not return details for repository '{full_name}'"
+                )
+                raise RemoteAPIError(error_msg)
 
             if not args.include_archived and is_archived_repository(summary_repo, extended_repo):
                 emit_text(logger, "\tSkipping archived repository.")
@@ -463,7 +489,13 @@ def main(argv=None):
         git_source = git_source_class(key_path=args.ssh_key_path)
         stats = run_backup(args, provider, git_source, logger=logger)
     except RepoDownloaderError as exc:
-        logger.event("run.finish", outcome="failed", level="ERROR", provider=args.provider, error=str(exc))
+        logger.event(
+            "run.finish",
+            outcome="failed",
+            level="ERROR",
+            provider=args.provider,
+            error=str(exc),
+        )
         emit_text(logger, f"[ERROR] {exc}")
         logger.close()
         return 1
