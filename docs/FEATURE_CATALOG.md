@@ -29,7 +29,7 @@ Status values:
 
 ### F002 Include/Exclude Repository Filtering
 - Priority: `next`
-- Status: `next`
+- Status: `done`
 - Goal: allow repo selection with `--include` and `--exclude` patterns.
 - Files:
   - `downloader.py`

@@ -12,6 +12,7 @@ Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bi
 - Non-interactive auth via environment variable (`--token-env`) with prompt fallback.
 - Deterministic output layout under `./backups` by default.
 - Dry-run mode to preview changes before cloning/fetching.
+- Include/exclude repository filtering with glob patterns (`workspace/repo`).
 
 ## Quick Start
 1. Install dependencies:

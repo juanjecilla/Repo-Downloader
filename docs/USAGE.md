@@ -44,6 +44,8 @@ python3 downloader.py [options]
 - `--token-env`: Environment variable containing token/app-password.
 - `--log-format`: Log format (`text` or `json`), default `text`.
 - `--log-file`: Optional file path where logs are written in the selected format.
+- `--include`: Include repository full-name glob patterns. Repeat or comma-separate values.
+- `--exclude`: Exclude repository full-name glob patterns. Repeat or comma-separate values.
 
 ## Backup Modes
 ### `mirror`
@@ -110,6 +112,22 @@ python3 downloader.py \
   --log-file ./logs/backup-run.jsonl
 ```
 
+### Filter repositories with include/exclude patterns
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --include "acme/*" \
+  --exclude "acme/private-*"
+```
+
+Filtering semantics:
+- Include patterns are applied first. If any include pattern is provided, a repository must match at least one.
+- Exclude patterns are applied second. Any exclude match skips the repository.
+- Pattern matching runs against repository full names (`workspace/repo`).
+
 ## Restore Notes
 - Mirror restore:
   ```bash
@@ -119,7 +137,6 @@ python3 downloader.py \
 
 ## Known Limitations
 - GitHub and GitLab providers are currently stubs and intentionally return not-implemented status.
-- Include/exclude repository pattern filters are not yet implemented.
 
 ## Exit Codes
 - `0`: Completed without repository failures.

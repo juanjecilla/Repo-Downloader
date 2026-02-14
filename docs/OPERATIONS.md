@@ -32,6 +32,17 @@ python3 downloader.py \
   --output-dir ./backups
 ```
 
+### Profile: Scoped backup with include/exclude filters
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --include "acme/*" \
+  --exclude "acme/private-*"
+```
+
 ### Profile: Safe preview before rollout
 ```bash
 python3 downloader.py \

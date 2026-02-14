@@ -12,8 +12,15 @@ from utils.log_utils import REDACTED_VALUE, RunLogger
 
 
 class _FakeProvider:
+    def __init__(self, repositories=None):
+        if repositories is None:
+            repositories = [{"repository": {"full_name": "acme/example"}}]
+        self._repositories = repositories
+
     def list_repositories(self, workspace=None, role="member"):
-        return [{"repository": {"full_name": "acme/example"}}]
+        _ = workspace
+        _ = role
+        return self._repositories
 
     def get_repository(self, workspace, name):
         return {
@@ -89,6 +96,10 @@ class TestDownloader(unittest.TestCase):
                 "json",
                 "--log-file",
                 "./logs/run.log",
+                "--include",
+                "acme/*",
+                "--exclude",
+                "acme/private-*",
             ]
         )
         self.assertEqual("bitbucket", args.provider)
@@ -96,6 +107,25 @@ class TestDownloader(unittest.TestCase):
         self.assertEqual("./backups", args.output_dir)
         self.assertEqual("json", args.log_format)
         self.assertEqual("./logs/run.log", args.log_file)
+        self.assertEqual(["acme/*"], args.include)
+        self.assertEqual(["acme/private-*"], args.exclude)
+
+    def test_parser_accepts_repeatable_and_comma_separated_patterns(self):
+        parser = downloader.build_parser()
+        args = parser.parse_args(
+            [
+                "--include",
+                "acme/*,other/*",
+                "--include",
+                "team/*",
+                "--exclude",
+                "acme/private-*",
+                "--exclude",
+                "other/legacy-*",
+            ]
+        )
+        self.assertEqual(["acme/*,other/*", "team/*"], args.include)
+        self.assertEqual(["acme/private-*", "other/legacy-*"], args.exclude)
 
     def test_resolve_token_from_environment(self):
         with patch.dict("os.environ", {"TOKEN_ENV_NAME": "secret-token"}, clear=False):
@@ -126,6 +156,8 @@ class TestDownloader(unittest.TestCase):
             provider="bitbucket",
             mode="both",
             dry_run=True,
+            include=[],
+            exclude=[],
         )
         provider = _FakeProvider()
         git_source = _FakeGitSource()
@@ -139,6 +171,90 @@ class TestDownloader(unittest.TestCase):
         self.assertIn("sync.mirror.clone", logged_actions)
         self.assertIn("sync.working.clone", logged_actions)
         self.assertIn("repository.finish", logged_actions)
+
+    def test_run_backup_include_filter_skips_non_matching_repo(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="both",
+            dry_run=True,
+            include=["acme/*"],
+            exclude=[],
+        )
+        provider = _FakeProvider(
+            repositories=[
+                {"repository": {"full_name": "acme/example"}},
+                {"repository": {"full_name": "other/skipme"}},
+            ]
+        )
+        git_source = _FakeGitSource()
+        logger = _MemoryLogger()
+
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(2, stats["processed"])
+        self.assertEqual(1, stats["succeeded"])
+        self.assertEqual(1, stats["skipped"])
+        self.assertEqual([], git_source.calls)
+        skip_events = [event for event in logger.events if event["action"] == "repository.skip"]
+        self.assertEqual(1, len(skip_events))
+        self.assertEqual("include_miss", skip_events[0]["reason"])
+
+    def test_run_backup_exclude_filter_overrides_include(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="both",
+            dry_run=True,
+            include=["acme/*"],
+            exclude=["acme/example"],
+        )
+        provider = _FakeProvider(repositories=[{"repository": {"full_name": "acme/example"}}])
+        git_source = _FakeGitSource()
+        logger = _MemoryLogger()
+
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(1, stats["processed"])
+        self.assertEqual(0, stats["succeeded"])
+        self.assertEqual(1, stats["skipped"])
+        skip_events = [event for event in logger.events if event["action"] == "repository.skip"]
+        self.assertEqual("exclude_match", skip_events[0]["reason"])
+
+    def test_run_backup_exclude_only_filters_repository(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="both",
+            dry_run=True,
+            include=[],
+            exclude=["other/*"],
+        )
+        provider = _FakeProvider(
+            repositories=[
+                {"repository": {"full_name": "acme/example"}},
+                {"repository": {"full_name": "other/skipme"}},
+            ]
+        )
+        git_source = _FakeGitSource()
+        logger = _MemoryLogger()
+
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(2, stats["processed"])
+        self.assertEqual(1, stats["succeeded"])
+        self.assertEqual(1, stats["skipped"])
+        skip_events = [event for event in logger.events if event["action"] == "repository.skip"]
+        self.assertEqual("exclude_match", skip_events[0]["reason"])
 
     def test_json_logger_outputs_parseable_events_with_required_fields(self):
         buffer = io.StringIO()
