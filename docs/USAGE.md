@@ -77,6 +77,7 @@ Commands:
 - `--token-env`: Environment variable containing token/app-password.
 - `--log-format`: Log format (`text` or `json`), default `text`.
 - `--log-file`: Optional file path where logs are written in the selected format.
+- `--summary-file`: Optional JSON file path for run health/metrics summary export.
 - `--include`: Include repository full-name glob patterns. Repeat or comma-separate values.
 - `--exclude`: Exclude repository full-name glob patterns. Repeat or comma-separate values.
 - `--branch`: In working mode, include only specific branch names. Repeat or comma-separate values.
@@ -188,6 +189,21 @@ python3 downloader.py \
   --log-format json \
   --log-file ./logs/backup-run.jsonl
 ```
+
+### Export run summary metrics
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --summary-file ./reports/backup-summary.json
+```
+
+Summary payload includes:
+- repository counters (`processed`, `succeeded`, `skipped`, `failed`)
+- failure-type counters (`api`, `auth`, `clone`, `fetch`, `checkout`, `other`)
+- per-mode duration totals (`mode_duration_ms`)
 
 ### Filter repositories with include/exclude patterns
 ```bash

@@ -264,7 +264,7 @@ Status values:
 
 ### F019 Metrics and Health Report
 - Priority: `later`
-- Status: `later`
+- Status: `done`
 - Goal: emit run metrics and machine-readable health summary.
 - Files:
   - `downloader.py`

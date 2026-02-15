@@ -5,6 +5,7 @@ import concurrent.futures
 import fnmatch
 import getpass
 import importlib
+import json
 import os
 import shutil
 import sys
@@ -152,6 +153,12 @@ def build_parser():
         help="Optional path to write logs in the selected format.",
     )
     parser.add_argument(
+        "--summary-file",
+        type=str,
+        default=None,
+        help="Optional JSON file path to export end-of-run summary metrics.",
+    )
+    parser.add_argument(
         "--include",
         action="append",
         default=None,
@@ -272,6 +279,17 @@ def flush_buffered_logger(buffered_logger, target_logger):
             message=payload["message"],
             **payload["fields"],
         )
+
+
+def write_summary_report(summary_file, payload):
+    summary_path = os.path.expanduser(summary_file)
+    summary_directory = os.path.dirname(summary_path)
+    if summary_directory:
+        os.makedirs(summary_directory, exist_ok=True)
+    with open(summary_path, "w", encoding="utf-8") as summary_handle:
+        json.dump(payload, summary_handle, sort_keys=True, indent=2)
+        summary_handle.write("\n")
+    return summary_path
 
 
 def _load_toml_config(config_path):
@@ -861,6 +879,7 @@ def sync_repository(
     total_repositories,
     logger,
 ):
+    mode_duration_ms = {"mirror": 0, "working": 0}
     parsed = parse_repository_entry(repository_entry)
     repo_workspace = parsed["workspace"]
     repo_name = parsed["name"]
@@ -887,7 +906,7 @@ def sync_repository(
             reason=filter_reason,
             detail=filter_detail,
         )
-        return "skipped", full_name
+        return "skipped", full_name, mode_duration_ms
 
     logger.event(
         "repository.start",
@@ -914,7 +933,7 @@ def sync_repository(
             mode=args.mode,
             reason="archived",
         )
-        return "skipped", full_name
+        return "skipped", full_name, mode_duration_ms
 
     clone_links = extended_repo.get("links", {}).get("clone", [])
     clone_url = url_utils.get_ssh_url_from_list(clone_links)
@@ -928,7 +947,7 @@ def sync_repository(
             mode=args.mode,
             reason="missing_ssh_clone_url",
         )
-        return "skipped", full_name
+        return "skipped", full_name, mode_duration_ms
 
     paths = build_backup_paths(args.output_dir, args.provider, repo_workspace, repo_name)
     if not args.dry_run:
@@ -940,6 +959,7 @@ def sync_repository(
     retain_count = getattr(args, "retain_count", None)
 
     for mode in selected_modes(args.mode):
+        mode_started_at = time.monotonic()
         if mode == "mirror":
             sync_mirror(
                 git_source,
@@ -976,6 +996,7 @@ def sync_repository(
                 args.default_branch_only,
                 default_branch_name,
             )
+        mode_duration_ms[mode] += int((time.monotonic() - mode_started_at) * 1000)
 
     apply_retention_if_enabled(
         logger=logger,
@@ -998,7 +1019,7 @@ def sync_repository(
         repository=full_name,
         mode=args.mode,
     )
-    return "success", full_name
+    return "success", full_name, mode_duration_ms
 
 
 def process_repository_with_retries(
@@ -1011,10 +1032,11 @@ def process_repository_with_retries(
     logger,
 ):
     repository_for_log = "unknown"
+    mode_duration_ms = {"mirror": 0, "working": 0}
     max_attempts = max(1, args.repo_retries + 1)
     for attempt in range(1, max_attempts + 1):
         try:
-            outcome, repository_for_log = sync_repository(
+            outcome, repository_for_log, mode_duration_ms = sync_repository(
                 args,
                 provider,
                 git_source,
@@ -1024,8 +1046,16 @@ def process_repository_with_retries(
                 logger,
             )
             if outcome == "skipped":
-                return {"status": "skipped", "repository": repository_for_log}
-            return {"status": "succeeded", "repository": repository_for_log}
+                return {
+                    "status": "skipped",
+                    "repository": repository_for_log,
+                    "mode_duration_ms": mode_duration_ms,
+                }
+            return {
+                "status": "succeeded",
+                "repository": repository_for_log,
+                "mode_duration_ms": mode_duration_ms,
+            }
         except (
             KeyError,
             TypeError,
@@ -1073,9 +1103,15 @@ def process_repository_with_retries(
                 "status": "failed",
                 "repository": repository_for_log,
                 "failure_type": failure_type,
+                "mode_duration_ms": mode_duration_ms,
             }
 
-    return {"status": "failed", "repository": repository_for_log, "failure_type": "other"}
+    return {
+        "status": "failed",
+        "repository": repository_for_log,
+        "failure_type": "other",
+        "mode_duration_ms": mode_duration_ms,
+    }
 
 
 def run_backup(args, provider, git_source, logger=None):
@@ -1100,6 +1136,7 @@ def run_backup(args, provider, git_source, logger=None):
         "skipped": 0,
         "failed": 0,
         "failure_types": make_failure_counters(),
+        "mode_duration_ms": {"mirror": 0, "working": 0},
     }
     resume_enabled = bool(getattr(args, "resume", False)) and not args.dry_run
     checkpoint_path = None
@@ -1159,6 +1196,10 @@ def run_backup(args, provider, git_source, logger=None):
             ) from exc
 
     def apply_repository_result(result):
+        mode_duration = result.get("mode_duration_ms", {})
+        for mode in ("mirror", "working"):
+            stats["mode_duration_ms"][mode] += mode_duration.get(mode, 0)
+
         status = result.get("status")
         if status == "skipped":
             stats["skipped"] += 1
@@ -1428,6 +1469,7 @@ def main(argv=None):
         output_dir=os.path.expanduser(args.output_dir),
         snapshot_format=args.snapshot_format,
         snapshot_dir=os.path.expanduser(args.snapshot_dir),
+        summary_file=args.summary_file,
         dry_run=args.dry_run,
         include_archived=args.include_archived,
         ssh_key_path=args.ssh_key_path,
@@ -1494,13 +1536,40 @@ def main(argv=None):
             skipped=stats["skipped"],
             failed=stats["failed"],
             failure_types=stats["failure_types"],
+            mode_duration_ms=stats["mode_duration_ms"],
         )
+        summary_payload = {
+            "provider": args.provider,
+            "mode": args.mode,
+            "processed": stats["processed"],
+            "succeeded": stats["succeeded"],
+            "skipped": stats["skipped"],
+            "failed": stats["failed"],
+            "failure_types": stats["failure_types"],
+            "mode_duration_ms": stats["mode_duration_ms"],
+            "exit_code": exit_code,
+        }
+        if args.summary_file:
+            try:
+                summary_path = write_summary_report(args.summary_file, summary_payload)
+            except (OSError, TypeError, ValueError) as exc:
+                raise ProviderConfigurationError(
+                    f"Failed writing summary file '{args.summary_file}': {exc}"
+                ) from exc
+            logger.event(
+                "run.summary.write",
+                outcome="success",
+                provider=args.provider,
+                mode=args.mode,
+                path=summary_path,
+            )
         emit_text(
             logger,
             "All repos finished! "
             f"processed={stats['processed']}, succeeded={stats['succeeded']}, "
             f"skipped={stats['skipped']}, failed={stats['failed']}, "
-            f"failure_types={format_failure_counters(stats['failure_types'])}"
+            f"failure_types={format_failure_counters(stats['failure_types'])}, "
+            f"mode_duration_ms={stats['mode_duration_ms']}"
         )
     except RepoDownloaderError as exc:
         logger.event(

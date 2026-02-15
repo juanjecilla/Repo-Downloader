@@ -191,6 +191,16 @@ python3 downloader.py backup \
   --workers 4
 ```
 
+### Profile: Export health summary JSON
+```bash
+python3 downloader.py backup \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --summary-file ./reports/backup-summary.json
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
@@ -212,6 +222,7 @@ python3 downloader.py backup \
 - End-of-run output includes failure-type counters for failed repositories (`api`, `auth`,
   `clone`, `fetch`, `checkout`, `other`) to help direct investigation.
 - Lock acquire/release events are logged with lock path and replacement metadata.
+- Summary file export includes per-mode duration totals and failure counters.
 
 ## Failure Handling
 1. Authentication errors:
