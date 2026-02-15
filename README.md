@@ -21,6 +21,7 @@ Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bi
 - Restore helper commands (`list-backups`, `validate-restore`) for inventory and restore drills.
 - Checkpoint-based resumable runs (`--resume`) for interrupted backup recovery.
 - Config profile support via TOML/YAML (`--config`) with CLI-overrides-config precedence.
+- Containerized runtime via Docker (`Dockerfile`) for isolated execution.
 
 ## Quick Start
 1. Install with `pipx` (recommended packaged mode):
