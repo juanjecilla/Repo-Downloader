@@ -20,16 +20,26 @@ Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bi
 - Optional retention policies for snapshots/working artifacts (`--retain-days`, `--retain-count`).
 - Restore helper commands (`list-backups`, `validate-restore`) for inventory and restore drills.
 - Checkpoint-based resumable runs (`--resume`) for interrupted backup recovery.
+- Config profile support via TOML/YAML (`--config`) with CLI-overrides-config precedence.
+- Containerized runtime via Docker (`Dockerfile`) for isolated execution.
 
 ## Quick Start
-1. Install dependencies:
+1. Install with `pipx` (recommended packaged mode):
+   ```bash
+   pipx install .
+   ```
+2. Or install dependencies for source execution:
    ```bash
    python3 -m pip install -r requirements.txt
    ```
-2. Create a Bitbucket app password:
+3. Create a Bitbucket app password:
    [Bitbucket App Passwords](https://bitbucket.org/account/settings/app-passwords/)
-3. Ensure SSH access to repositories is configured.
-4. Run:
+4. Ensure SSH access to repositories is configured.
+5. Run:
+   ```bash
+   repo-downloader --provider bitbucket --username <bitbucket-user> --mode both
+   ```
+6. Source execution equivalent:
    ```bash
    python3 downloader.py --provider bitbucket --username <bitbucket-user> --mode both
    ```

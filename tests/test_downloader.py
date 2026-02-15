@@ -1,4 +1,5 @@
 import argparse
+import importlib.util
 import io
 import json
 import os
@@ -96,6 +97,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
             [
                 "--provider",
                 "bitbucket",
+                "--config",
+                "./profiles/daily.toml",
                 "--mode",
                 "mirror",
                 "--output-dir",
@@ -131,6 +134,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         )
         self.assertEqual("bitbucket", args.provider)
         self.assertEqual("backup", args.command)
+        self.assertEqual("./profiles/daily.toml", args.config)
         self.assertEqual("mirror", args.mode)
         self.assertEqual("./backups", args.output_dir)
         self.assertEqual("zip", args.snapshot_format)
@@ -165,6 +169,56 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual("validate-restore", validate_args.command)
         self.assertEqual("./backups/bitbucket/acme/example.git", validate_args.backup_path)
         self.assertEqual("./restore-test", validate_args.restore_dir)
+
+    def test_apply_config_defaults_applies_when_cli_uses_defaults(self):
+        parser = downloader.build_parser()
+        args = parser.parse_args([])
+        configured = downloader.apply_config_defaults(
+            parser,
+            args,
+            {
+                "provider": "github",
+                "mode": "mirror",
+                "include": ["acme/*"],
+                "dry_run": True,
+            },
+        )
+
+        self.assertEqual("github", configured.provider)
+        self.assertEqual("mirror", configured.mode)
+        self.assertEqual(["acme/*"], configured.include)
+        self.assertTrue(configured.dry_run)
+
+    def test_apply_config_defaults_preserves_cli_overrides(self):
+        parser = downloader.build_parser()
+        args = parser.parse_args(["--provider", "gitlab", "--mode", "working"])
+        configured = downloader.apply_config_defaults(
+            parser,
+            args,
+            {"provider": "github", "mode": "mirror"},
+        )
+
+        self.assertEqual("gitlab", configured.provider)
+        self.assertEqual("working", configured.mode)
+
+    def test_load_config_file_from_toml_profile(self):
+        toml_available = importlib.util.find_spec("tomllib") is not None
+        tomli_available = importlib.util.find_spec("tomli") is not None
+        if not toml_available and not tomli_available:
+            self.skipTest("toml parser dependency not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = os.path.join(tmp_dir, "backup.toml")
+            with open(config_path, "w", encoding="utf-8") as config_file:
+                config_file.write(
+                    '[backup]\nprovider = "github"\nmode = "mirror"\ninclude = ["acme/*"]\n'
+                )
+
+            loaded = downloader.load_config_file(config_path)
+
+        self.assertEqual("github", loaded["provider"])
+        self.assertEqual("mirror", loaded["mode"])
+        self.assertEqual(["acme/*"], loaded["include"])
 
     def test_parser_accepts_repeatable_and_comma_separated_patterns(self):
         parser = downloader.build_parser()

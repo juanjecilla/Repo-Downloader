@@ -10,6 +10,43 @@
 - Large/active organizations: every 4-12 hours for mirror mode.
 - Run `working` mode only when browsing or branch-level local validation is needed.
 
+## Scheduling Examples
+### Cron: every 6 hours mirror backup
+```bash
+0 */6 * * * cd /path/to/repo-downloader && /usr/bin/python3 downloader.py backup --config ./profiles/mirror.toml >> /var/log/repo-downloader.log 2>&1
+```
+
+### Cron: daily full backup + restore validation
+```bash
+15 2 * * * cd /path/to/repo-downloader && /usr/bin/python3 downloader.py backup --config ./profiles/full.toml >> /var/log/repo-downloader.log 2>&1
+45 2 * * * cd /path/to/repo-downloader && /usr/bin/python3 downloader.py validate-restore --backup-path ./backups/bitbucket/acme/api-service.git --restore-dir /tmp/api-service-restore >> /var/log/repo-downloader.log 2>&1
+```
+
+### systemd timer (Linux)
+`/etc/systemd/system/repo-downloader.service`:
+```ini
+[Unit]
+Description=Repo-Downloader Backup Run
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/repo-downloader
+ExecStart=/usr/bin/python3 /path/to/repo-downloader/downloader.py backup --config ./profiles/full.toml
+```
+
+`/etc/systemd/system/repo-downloader.timer`:
+```ini
+[Unit]
+Description=Run Repo-Downloader every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
 ## Suggested Command Profiles
 ### Profile: Mirror baseline (recommended)
 ```bash
@@ -139,6 +176,11 @@ python3 downloader.py backup \
   --resume
 ```
 
+### Profile: Config-driven run
+```bash
+python3 downloader.py backup --config ./profiles/daily.toml
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
@@ -175,6 +217,15 @@ python3 downloader.py backup \
    - Re-run command and inspect the repository block.
    - Increase `--repo-retries` for transient clone/fetch/api failures.
    - Confirm repository still exists and access is granted.
+
+## Failure Notification Guidance
+- Alert on non-zero exit codes in cron/systemd wrappers.
+- Emit JSON logs (`--log-format json --log-file ...`) and feed them to your log stack.
+- Send notifications on failures, for example:
+  ```bash
+  python3 downloader.py backup --config ./profiles/full.toml || curl -X POST -H 'Content-type: application/json' --data '{"text":"Repo-Downloader backup failed"}' https://hooks.slack.com/services/XXX/YYY/ZZZ
+  ```
+- Validate notification pipeline quarterly with a forced-failure drill.
 
 ## Restore Validation
 Run this periodically to verify backups:

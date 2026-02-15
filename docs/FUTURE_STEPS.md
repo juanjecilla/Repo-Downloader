@@ -78,6 +78,12 @@ Definition of done:
 - Users can run from config profiles.
 - At least one packaged distribution path is production-ready.
 
+Progress:
+- `F014` completed.
+- `F015` completed.
+- `F016` completed.
+- `F017` completed.
+
 ## Phase 5: Scale and Governance (P5)
 Goal: support larger organizations and safer operations.
 
