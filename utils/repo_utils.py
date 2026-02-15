@@ -178,7 +178,7 @@ def acquire_run_lock(
                 json.dump(lock_payload, lock_file, sort_keys=True)
                 lock_file.write("\n")
             break
-        except FileExistsError as exc:
+        except FileExistsError as exists_error:
             existing_lock = _read_lock_metadata(lock_path)
             existing_pid = existing_lock.get("pid")
             existing_run_id = existing_lock.get("run_id")
@@ -188,7 +188,7 @@ def acquire_run_lock(
                         "Another backup run is active for this output root "
                         f"(provider={provider}, pid={existing_pid}, run_id={existing_run_id}). "
                         "Use --force-lock to replace the existing lock."
-                    ) from exc
+                    ) from exists_error
                 replaced_forced = True
             else:
                 replaced_stale = True
@@ -198,12 +198,14 @@ def acquire_run_lock(
             except FileNotFoundError:
                 # Another process changed the lock while we were resolving it; retry.
                 continue
-            except OSError as exc:
+            except OSError as remove_error:
                 raise RunLockError(
-                    f"Unable to replace existing run lock '{lock_path}': {exc}"
-                ) from exc
-        except OSError as exc:
-            raise RunLockError(f"Unable to create run lock '{lock_path}': {exc}") from exc
+                    f"Unable to replace existing run lock '{lock_path}': {remove_error}"
+                ) from remove_error
+        except OSError as create_error:
+            raise RunLockError(
+                f"Unable to create run lock '{lock_path}': {create_error}"
+            ) from create_error
 
     return {
         "path": lock_path,
