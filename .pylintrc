@@ -1,0 +1,33 @@
+[MASTER]
+ignore=.git,__pycache__
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-many-arguments,
+    too-many-positional-arguments,
+    too-many-locals,
+    too-many-statements,
+    too-few-public-methods,
+    invalid-name,
+    unused-argument,
+    import-outside-toplevel,
+    consider-using-with,
+    consider-using-f-string,
+    line-too-long,
+    missing-final-newline,
+    import-error,
+    no-name-in-module,
+    no-member,
+    protected-access,
+    unexpected-keyword-arg,
+    too-many-public-methods,
+    missing-timeout,
+    no-else-return,
+    consider-using-sys-exit,
+    broad-exception-caught
+
+[FORMAT]
+max-line-length=120
