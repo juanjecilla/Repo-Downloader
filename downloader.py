@@ -12,12 +12,17 @@ import sys
 import time
 
 from utils import url_utils
+from utils.compatibility import (
+    SUPPORTED_PLATFORM_LABELS,
+    build_runtime_compatibility_report,
+)
 from utils.errors import (
     AuthenticationError,
     ProviderConfigurationError,
     ProviderNotImplementedError,
     RemoteAPIError,
     RepoDownloaderError,
+    redact_sensitive_text,
     RunLockError,
     RepositorySyncError,
 )
@@ -458,6 +463,61 @@ def format_failure_counters(counters):
     if non_zero:
         return ", ".join(non_zero)
     return "none"
+
+
+def sanitize_error_text(error, sensitive_values=None):
+    return redact_sensitive_text(error, sensitive_values=sensitive_values)
+
+
+def emit_runtime_compatibility(logger):
+    report = build_runtime_compatibility_report()
+    logger.event(
+        "runtime.compatibility",
+        outcome="info",
+        python_version=report["python_version"],
+        minimum_python_version=report["minimum_python_version"],
+        python_supported=report["python_supported"],
+        platform=report["platform"],
+        platform_supported=report["platform_supported"],
+        git_version=report["git_version"],
+        minimum_git_version=report["minimum_git_version"],
+        git_supported=report["git_supported"],
+    )
+
+    if not report["python_supported"]:
+        emit_text(
+            logger,
+            (
+                "[WARN] Python runtime is below supported minimum "
+                f"({report['python_version']} < {report['minimum_python_version']})."
+            ),
+        )
+
+    if not report["platform_supported"]:
+        supported_platforms = ", ".join(SUPPORTED_PLATFORM_LABELS)
+        emit_text(
+            logger,
+            (
+                "[WARN] Runtime platform is outside validated compatibility matrix "
+                f"({report['platform']}; supported: {supported_platforms})."
+            ),
+        )
+
+    if report["git_version"] is None:
+        emit_text(
+            logger,
+            "[WARN] Could not detect git version. Ensure git is installed and available in PATH.",
+        )
+    elif not report["git_supported"]:
+        emit_text(
+            logger,
+            (
+                "[WARN] Git runtime is below supported minimum "
+                f"({report['git_version']} < {report['minimum_git_version']})."
+            ),
+        )
+
+    return report
 
 
 def get_default_branch_name(extended_repository):
@@ -1030,6 +1090,7 @@ def process_repository_with_retries(
     index,
     total_repositories,
     logger,
+    sensitive_values=None,
 ):
     repository_for_log = "unknown"
     mode_duration_ms = {"mirror": 0, "working": 0}
@@ -1065,6 +1126,7 @@ def process_repository_with_retries(
             RepositorySyncError,
         ) as exc:
             failure_type = classify_repository_failure(exc)
+            sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)
             if attempt < max_attempts:
                 logger.event(
                     "repository.retry",
@@ -1076,12 +1138,12 @@ def process_repository_with_retries(
                     attempt=attempt,
                     max_attempts=max_attempts,
                     failure_type=failure_type,
-                    error=str(exc),
+                    error=sanitized_error,
                 )
                 emit_text(
                     logger,
                     f"[WARN] Repository failed ({failure_type}), retrying "
-                    f"{attempt}/{max_attempts - 1}: {exc}",
+                    f"{attempt}/{max_attempts - 1}: {sanitized_error}",
                 )
                 continue
 
@@ -1095,9 +1157,9 @@ def process_repository_with_retries(
                 attempt=attempt,
                 max_attempts=max_attempts,
                 failure_type=failure_type,
-                error=str(exc),
+                error=sanitized_error,
             )
-            emit_text(logger, f"[ERROR] Failed processing repository entry: {exc}")
+            emit_text(logger, f"[ERROR] Failed processing repository entry: {sanitized_error}")
             emit_text(logger, "Moving to next repository.")
             return {
                 "status": "failed",
@@ -1114,7 +1176,7 @@ def process_repository_with_retries(
     }
 
 
-def run_backup(args, provider, git_source, logger=None):
+def run_backup(args, provider, git_source, logger=None, sensitive_values=None):
     logger = logger or NullLogger()
     emit_text(logger, "Requesting repositories with permission")
     logger.event("repositories.request", outcome="start", provider=args.provider, mode=args.mode)
@@ -1262,6 +1324,7 @@ def run_backup(args, provider, git_source, logger=None):
                     index,
                     len(repositories),
                     buffered_logger,
+                    sensitive_values,
                 )
                 future_map[future] = (index, buffered_logger)
 
@@ -1283,6 +1346,7 @@ def run_backup(args, provider, git_source, logger=None):
                 index,
                 len(repositories),
                 logger,
+                sensitive_values,
             )
             apply_repository_result(result)
 
@@ -1487,9 +1551,11 @@ def main(argv=None):
         resume=args.resume,
         log_format=args.log_format,
     )
+    compatibility_report = emit_runtime_compatibility(logger)
 
     lock_info = None
     exit_code = 1
+    sensitive_values = []
     try:
         lock_info = acquire_run_lock(
             output_dir=args.output_dir,
@@ -1507,6 +1573,7 @@ def main(argv=None):
             replaced_forced=lock_info["replaced_forced"],
         )
         token = resolve_token(args.token_env, logger=logger)
+        sensitive_values.append(token)
         provider = create_provider(args, token)
         if not provider.auth_ok():
             message = provider.auth_error or "Unknown authentication error."
@@ -1524,7 +1591,13 @@ def main(argv=None):
             ) from exc
 
         git_source = git_source_class(key_path=args.ssh_key_path)
-        stats = run_backup(args, provider, git_source, logger=logger)
+        stats = run_backup(
+            args,
+            provider,
+            git_source,
+            logger=logger,
+            sensitive_values=sensitive_values,
+        )
         exit_code = 0 if stats["failed"] == 0 else 2
         logger.event(
             "run.finish",
@@ -1548,6 +1621,7 @@ def main(argv=None):
             "failure_types": stats["failure_types"],
             "mode_duration_ms": stats["mode_duration_ms"],
             "exit_code": exit_code,
+            "compatibility": compatibility_report,
         }
         if args.summary_file:
             try:
@@ -1572,14 +1646,15 @@ def main(argv=None):
             f"mode_duration_ms={stats['mode_duration_ms']}"
         )
     except RepoDownloaderError as exc:
+        sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)
         logger.event(
             "run.finish",
             outcome="failed",
             level="ERROR",
             provider=args.provider,
-            error=str(exc),
+            error=sanitized_error,
         )
-        emit_text(logger, f"[ERROR] {exc}")
+        emit_text(logger, f"[ERROR] {sanitized_error}")
         exit_code = 1
     except KeyboardInterrupt:
         logger.event("run.finish", outcome="interrupted", level="WARNING", provider=args.provider)
@@ -1597,15 +1672,16 @@ def main(argv=None):
                     lock_path=lock_path,
                 )
             except RunLockError as exc:
+                sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)
                 logger.event(
                     "run.lock.release",
                     outcome="failed",
                     level="ERROR",
                     provider=args.provider,
                     lock_path=lock_path,
-                    error=str(exc),
+                    error=sanitized_error,
                 )
-                emit_text(logger, f"[ERROR] {exc}")
+                emit_text(logger, f"[ERROR] {sanitized_error}")
                 if exit_code == 0:
                     exit_code = 1
         logger.close()

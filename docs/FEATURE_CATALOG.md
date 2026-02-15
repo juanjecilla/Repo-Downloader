@@ -276,7 +276,7 @@ Status values:
 
 ### F020 Secret Redaction and Input Hardening
 - Priority: `next`
-- Status: `next`
+- Status: `done`
 - Goal: ensure tokens/credentials are never logged or persisted insecurely.
 - Files:
   - `downloader.py`
@@ -289,12 +289,13 @@ Status values:
 
 ### F021 Compatibility and Regression Matrix
 - Priority: `later`
-- Status: `later`
+- Status: `done`
 - Goal: define and test supported OS/Python/Git combinations.
 - Files:
   - `.github/workflows/pylint.yml`
   - `README.md`
   - `docs/USAGE.md`
+  - `utils/compatibility.py`
   - test suite files
 - Acceptance criteria:
   - Published compatibility matrix.

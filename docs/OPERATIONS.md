@@ -223,6 +223,7 @@ python3 downloader.py backup \
   `clone`, `fetch`, `checkout`, `other`) to help direct investigation.
 - Lock acquire/release events are logged with lock path and replacement metadata.
 - Summary file export includes per-mode duration totals and failure counters.
+- Error messages are redacted for token/password/secret patterns before logging.
 
 ## Failure Handling
 1. Authentication errors:
