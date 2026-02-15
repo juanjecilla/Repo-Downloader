@@ -165,27 +165,6 @@ def acquire_run_lock(
 
     replaced_stale = False
     replaced_forced = False
-    if os.path.exists(lock_path):
-        existing_lock = _read_lock_metadata(lock_path)
-        existing_pid = existing_lock.get("pid")
-        existing_run_id = existing_lock.get("run_id")
-        if is_process_running(existing_pid):
-            if not force_lock:
-                raise RunLockError(
-                    "Another backup run is active for this output root "
-                    f"(provider={provider}, pid={existing_pid}, run_id={existing_run_id}). "
-                    "Use --force-lock to replace the existing lock."
-                )
-            replaced_forced = True
-        else:
-            replaced_stale = True
-
-        try:
-            os.remove(lock_path)
-        except OSError as exc:
-            raise RunLockError(
-                f"Unable to replace existing run lock '{lock_path}': {exc}"
-            ) from exc
 
     lock_payload = {
         "pid": os.getpid(),
@@ -193,12 +172,38 @@ def acquire_run_lock(
         "run_id": run_id,
         "created_at": utc_now_iso(),
     }
-    try:
-        with open(lock_path, "w", encoding="utf-8") as lock_file:
-            json.dump(lock_payload, lock_file, sort_keys=True)
-            lock_file.write("\n")
-    except OSError as exc:
-        raise RunLockError(f"Unable to create run lock '{lock_path}': {exc}") from exc
+    while True:
+        try:
+            with open(lock_path, "x", encoding="utf-8") as lock_file:
+                json.dump(lock_payload, lock_file, sort_keys=True)
+                lock_file.write("\n")
+            break
+        except FileExistsError:
+            existing_lock = _read_lock_metadata(lock_path)
+            existing_pid = existing_lock.get("pid")
+            existing_run_id = existing_lock.get("run_id")
+            if is_process_running(existing_pid):
+                if not force_lock:
+                    raise RunLockError(
+                        "Another backup run is active for this output root "
+                        f"(provider={provider}, pid={existing_pid}, run_id={existing_run_id}). "
+                        "Use --force-lock to replace the existing lock."
+                    )
+                replaced_forced = True
+            else:
+                replaced_stale = True
+
+            try:
+                os.remove(lock_path)
+            except FileNotFoundError:
+                # Another process changed the lock while we were resolving it; retry.
+                continue
+            except OSError as exc:
+                raise RunLockError(
+                    f"Unable to replace existing run lock '{lock_path}': {exc}"
+                ) from exc
+        except OSError as exc:
+            raise RunLockError(f"Unable to create run lock '{lock_path}': {exc}") from exc
 
     return {
         "path": lock_path,

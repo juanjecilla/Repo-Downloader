@@ -151,14 +151,18 @@ class TestRepoUtils(unittest.TestCase):  # pylint: disable=too-many-public-metho
         with tempfile.TemporaryDirectory() as tmp_dir:
             lock_path = build_run_lock_path(tmp_dir, "bitbucket")
             with open(lock_path, "w", encoding="utf-8") as lock_file:
-                json.dump({"pid": 999999, "provider": "bitbucket", "run_id": "old"}, lock_file)
+                json.dump(
+                    {"pid": 999999, "provider": "bitbucket", "run_id": "old"},
+                    lock_file,
+                )
 
-            lock_info = acquire_run_lock(
-                output_dir=tmp_dir,
-                provider="bitbucket",
-                run_id="run-test",
-                force_lock=False,
-            )
+            with patch("utils.repo_utils.is_process_running", return_value=False):
+                lock_info = acquire_run_lock(
+                    output_dir=tmp_dir,
+                    provider="bitbucket",
+                    run_id="run-test",
+                    force_lock=False,
+                )
             self.assertTrue(lock_info["replaced_stale"])
             self.assertFalse(lock_info["replaced_forced"])
             release_run_lock(lock_info["path"])
