@@ -99,6 +99,7 @@ Definition of done:
 Progress:
 - `F018` completed.
 - `F019` completed.
+- `F020` completed.
 
 ## File Ownership Map For Future Work
 - CLI orchestration: `downloader.py`

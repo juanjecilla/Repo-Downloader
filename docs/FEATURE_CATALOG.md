@@ -276,7 +276,7 @@ Status values:
 
 ### F020 Secret Redaction and Input Hardening
 - Priority: `next`
-- Status: `next`
+- Status: `done`
 - Goal: ensure tokens/credentials are never logged or persisted insecurely.
 - Files:
   - `downloader.py`

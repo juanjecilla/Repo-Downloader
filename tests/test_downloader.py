@@ -13,6 +13,7 @@ import downloader
 from utils.errors import (
     AuthenticationError,
     ProviderConfigurationError,
+    REDACTED_TEXT,
     RepositorySyncError,
     RunLockError,
 )
@@ -762,6 +763,16 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(REDACTED_VALUE, parsed["nested"]["api_token"])
         self.assertNotIn("super-secret-token", buffer.getvalue())
 
+    def test_sanitize_error_text_redacts_token_content(self):
+        secret_value = "super-secret-token"
+        sanitized = downloader.sanitize_error_text(
+            f"authentication failed token={secret_value}",
+            sensitive_values=[secret_value],
+        )
+
+        self.assertNotIn(secret_value, sanitized)
+        self.assertIn(REDACTED_TEXT, sanitized)
+
     def test_null_logger_default_paths_do_not_raise(self):
         token = "from-prompt"
         with patch.dict("os.environ", {}, clear=True):
@@ -915,6 +926,40 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
             )
 
         self.assertEqual(1, exit_code)
+
+    def test_main_redacts_secret_in_error_output(self):
+        secret_value = "my-secret-token"
+        with patch(
+            "downloader.acquire_run_lock",
+            return_value={
+                "path": "/tmp/repo-downloader-test.lock",
+                "replaced_stale": False,
+                "replaced_forced": False,
+            },
+        ):
+            with patch("downloader.release_run_lock"):
+                with patch("downloader.resolve_token", return_value=secret_value):
+                    with patch(
+                        "downloader.create_provider",
+                        side_effect=ProviderConfigurationError(
+                            f"invalid credentials token={secret_value}"
+                        ),
+                    ):
+                        buffer = io.StringIO()
+                        with redirect_stdout(buffer):
+                            exit_code = downloader.main(
+                                [
+                                    "--provider",
+                                    "bitbucket",
+                                    "--username",
+                                    "my-user",
+                                ]
+                            )
+
+        rendered = buffer.getvalue()
+        self.assertEqual(1, exit_code)
+        self.assertNotIn(secret_value, rendered)
+        self.assertIn(REDACTED_TEXT, rendered)
 
     def test_main_releases_lock_when_run_finishes(self):
         class _FakeProviderWithAuth:
