@@ -176,7 +176,7 @@ Status values:
 
 ### F012 Restore Helper Commands
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: provide CLI helpers for restore verification.
 - Files:
   - `downloader.py`
@@ -189,7 +189,7 @@ Status values:
 
 ### F013 Resumable Runs
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: persist run checkpoints and resume after interruption.
 - Files:
   - `downloader.py`

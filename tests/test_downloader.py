@@ -126,9 +126,11 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "--repo-retries",
                 "2",
                 "--force-lock",
+                "--resume",
             ]
         )
         self.assertEqual("bitbucket", args.provider)
+        self.assertEqual("backup", args.command)
         self.assertEqual("mirror", args.mode)
         self.assertEqual("./backups", args.output_dir)
         self.assertEqual("zip", args.snapshot_format)
@@ -144,6 +146,25 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertTrue(args.default_branch_only)
         self.assertEqual(2, args.repo_retries)
         self.assertTrue(args.force_lock)
+        self.assertTrue(args.resume)
+
+    def test_parser_accepts_restore_commands(self):
+        parser = downloader.build_parser()
+        list_args = parser.parse_args(["list-backups", "--output-dir", "./backups"])
+        self.assertEqual("list-backups", list_args.command)
+
+        validate_args = parser.parse_args(
+            [
+                "validate-restore",
+                "--backup-path",
+                "./backups/bitbucket/acme/example.git",
+                "--restore-dir",
+                "./restore-test",
+            ]
+        )
+        self.assertEqual("validate-restore", validate_args.command)
+        self.assertEqual("./backups/bitbucket/acme/example.git", validate_args.backup_path)
+        self.assertEqual("./restore-test", validate_args.restore_dir)
 
     def test_parser_accepts_repeatable_and_comma_separated_patterns(self):
         parser = downloader.build_parser()
@@ -501,6 +522,108 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual("planned", retention_events[0]["outcome"])
         self.assertEqual("snapshot", retention_events[0]["artifact_type"])
 
+    def test_run_backup_resume_skips_completed_repositories(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            checkpoint_dir = os.path.join(output_dir, "bitbucket")
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            checkpoint_path = os.path.join(checkpoint_dir, ".repo-downloader-checkpoint.json")
+            with open(checkpoint_path, "w", encoding="utf-8") as checkpoint_file:
+                json.dump(
+                    {
+                        "signature": {
+                            "provider": "bitbucket",
+                            "mode": "mirror",
+                            "workspace": None,
+                            "include": [],
+                            "exclude": [],
+                        },
+                        "completed": ["acme/one"],
+                    },
+                    checkpoint_file,
+                )
+
+            args = SimpleNamespace(
+                workspace=None,
+                role="member",
+                include_archived=False,
+                output_dir=output_dir,
+                provider="bitbucket",
+                mode="mirror",
+                dry_run=False,
+                include=[],
+                exclude=[],
+                branch_names=[],
+                branch_patterns=[],
+                default_branch_only=False,
+                repo_retries=0,
+                snapshot_format=None,
+                snapshot_dir="./snapshots-test",
+                retain_days=None,
+                retain_count=None,
+                resume=True,
+            )
+            provider = _FakeProvider(
+                repositories=[
+                    {"repository": {"full_name": "acme/one"}},
+                    {"repository": {"full_name": "acme/two"}},
+                ]
+            )
+            git_source = _FakeGitSource()
+            logger = _MemoryLogger()
+
+            stats = downloader.run_backup(args, provider, git_source, logger=logger)
+            checkpoint_exists_after = os.path.exists(checkpoint_path)
+
+        self.assertEqual(2, stats["processed"])
+        self.assertEqual(1, stats["skipped"])
+        self.assertEqual(1, stats["succeeded"])
+        self.assertEqual(1, len([call for call in git_source.calls if call[0] == "clone_repo"]))
+        self.assertFalse(checkpoint_exists_after)
+
+    def test_run_backup_resume_keeps_checkpoint_on_failure(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            args = SimpleNamespace(
+                workspace=None,
+                role="member",
+                include_archived=False,
+                output_dir=output_dir,
+                provider="bitbucket",
+                mode="mirror",
+                dry_run=False,
+                include=[],
+                exclude=[],
+                branch_names=[],
+                branch_patterns=[],
+                default_branch_only=False,
+                repo_retries=0,
+                snapshot_format=None,
+                snapshot_dir="./snapshots-test",
+                retain_days=None,
+                retain_count=None,
+                resume=True,
+            )
+
+            class _FailingProvider(_FakeProvider):
+                def get_repository(self, workspace, name):
+                    _ = workspace
+                    _ = name
+                    raise AuthenticationError("token expired")
+
+            provider = _FailingProvider()
+            git_source = _FakeGitSource()
+            logger = _MemoryLogger()
+
+            stats = downloader.run_backup(args, provider, git_source, logger=logger)
+            checkpoint_path = os.path.join(
+                output_dir,
+                "bitbucket",
+                ".repo-downloader-checkpoint.json",
+            )
+            checkpoint_exists_after = os.path.exists(checkpoint_path)
+
+        self.assertEqual(1, stats["failed"])
+        self.assertTrue(checkpoint_exists_after)
+
     def test_json_logger_outputs_parseable_events_with_required_fields(self):
         buffer = io.StringIO()
         logger = RunLogger(log_format="json", run_id="run-test")
@@ -750,6 +873,66 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(0, exit_code)
         mock_acquire.assert_called_once()
         mock_release.assert_called_once_with("/tmp/repo-downloader-test.lock")
+
+    def test_main_list_backups_command_lists_entries(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            mirror_path = os.path.join(output_dir, "bitbucket", "acme", "example.git")
+            working_path = os.path.join(output_dir, "bitbucket", "acme", "example")
+            os.makedirs(mirror_path, exist_ok=True)
+            os.makedirs(working_path, exist_ok=True)
+
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                exit_code = downloader.main(["list-backups", "--output-dir", output_dir])
+
+        output = buffer.getvalue()
+        self.assertEqual(0, exit_code)
+        self.assertIn("Found 2 backup entries", output)
+        self.assertIn("bitbucket/acme/example [mirror]", output)
+        self.assertIn("bitbucket/acme/example [working]", output)
+
+    def test_main_validate_restore_requires_backup_path(self):
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            exit_code = downloader.main(["validate-restore"])
+
+        self.assertEqual(1, exit_code)
+        self.assertIn("--backup-path is required", buffer.getvalue())
+
+    def test_perform_restore_validation_checks_clone_and_refs(self):
+        class _FakeRepoObject:
+            heads = [SimpleNamespace(name="main")]
+            remotes = SimpleNamespace(
+                origin=SimpleNamespace(refs=[SimpleNamespace(name="origin/main")])
+            )
+
+        class _FakeRepoClass:
+            @staticmethod
+            def clone_from(source, destination):
+                _ = source
+                os.makedirs(destination, exist_ok=True)
+                return _FakeRepoObject()
+
+        fake_git_module = SimpleNamespace(Repo=_FakeRepoClass)
+        fake_git_exc_module = SimpleNamespace(GitError=RuntimeError)
+
+        def fake_import(module_name):
+            if module_name == "git":
+                return fake_git_module
+            if module_name == "git.exc":
+                return fake_git_exc_module
+            raise ModuleNotFoundError(module_name)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            backup_path = os.path.join(tmp_dir, "repo.git")
+            restore_dir = os.path.join(tmp_dir, "restore")
+            os.makedirs(backup_path, exist_ok=True)
+
+            with patch("downloader.importlib.import_module", side_effect=fake_import):
+                result = downloader.perform_restore_validation(backup_path, restore_dir)
+
+        self.assertEqual(1, result["branch_count"])
+        self.assertEqual(1, result["remote_ref_count"])
 
 
 if __name__ == "__main__":

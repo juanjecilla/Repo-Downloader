@@ -63,6 +63,8 @@ Definition of done:
 Progress:
 - `F010` completed.
 - `F011` completed.
+- `F012` completed.
+- `F013` completed.
 
 ## Phase 4: UX and Distribution (P4)
 Goal: make tool easy to adopt across environments.
