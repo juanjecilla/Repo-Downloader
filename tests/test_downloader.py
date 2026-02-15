@@ -7,7 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import downloader
-from utils.errors import AuthenticationError, ProviderConfigurationError, RepositorySyncError
+from utils.errors import (
+    AuthenticationError,
+    ProviderConfigurationError,
+    RepositorySyncError,
+    RunLockError,
+)
 from utils.log_utils import REDACTED_VALUE, RunLogger
 
 
@@ -110,6 +115,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "--default-branch-only",
                 "--repo-retries",
                 "2",
+                "--force-lock",
             ]
         )
         self.assertEqual("bitbucket", args.provider)
@@ -123,6 +129,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(["release/*"], args.branch_pattern)
         self.assertTrue(args.default_branch_only)
         self.assertEqual(2, args.repo_retries)
+        self.assertTrue(args.force_lock)
 
     def test_parser_accepts_repeatable_and_comma_separated_patterns(self):
         parser = downloader.build_parser()
@@ -482,6 +489,76 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(1, stats["failed"])
         self.assertEqual(1, stats["failure_types"]["auth"])
         self.assertEqual(0, stats["failure_types"]["api"])
+
+    def test_main_fails_when_run_lock_is_active(self):
+        with patch("downloader.acquire_run_lock", side_effect=RunLockError("lock active")):
+            exit_code = downloader.main(
+                [
+                    "--provider",
+                    "bitbucket",
+                    "--username",
+                    "my-user",
+                    "--dry-run",
+                ]
+            )
+
+        self.assertEqual(1, exit_code)
+
+    def test_main_releases_lock_when_run_finishes(self):
+        class _FakeProviderWithAuth:
+            def auth_ok(self):
+                return True
+
+            @property
+            def auth_error(self):
+                return None
+
+        class _FakeGitModule:
+            class GitSource:
+                def __init__(self, key_path):
+                    self.key_path = key_path
+
+        stats = {
+            "processed": 1,
+            "succeeded": 1,
+            "skipped": 0,
+            "failed": 0,
+            "failure_types": downloader.make_failure_counters(),
+        }
+        with patch(
+            "downloader.acquire_run_lock",
+            return_value={
+                "path": "/tmp/repo-downloader-test.lock",
+                "replaced_stale": False,
+                "replaced_forced": False,
+            },
+        ) as mock_acquire:
+            with patch("downloader.release_run_lock") as mock_release:
+                with patch("downloader.resolve_token", return_value="token-value"):
+                    with patch(
+                        "downloader.create_provider",
+                        return_value=_FakeProviderWithAuth(),
+                    ):
+                        with patch(
+                            "downloader.importlib.import_module",
+                            return_value=_FakeGitModule(),
+                        ):
+                            with patch("downloader.run_backup", return_value=stats):
+                                exit_code = downloader.main(
+                                    [
+                                        "--provider",
+                                        "bitbucket",
+                                        "--username",
+                                        "my-user",
+                                        "--token-env",
+                                        "BB_TOKEN",
+                                        "--dry-run",
+                                    ]
+                                )
+
+        self.assertEqual(0, exit_code)
+        mock_acquire.assert_called_once()
+        mock_release.assert_called_once_with("/tmp/repo-downloader-test.lock")
 
 
 if __name__ == "__main__":

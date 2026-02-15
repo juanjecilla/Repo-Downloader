@@ -15,14 +15,17 @@ from utils.errors import (
     ProviderNotImplementedError,
     RemoteAPIError,
     RepoDownloaderError,
+    RunLockError,
     RepositorySyncError,
 )
 from utils.log_utils import NullLogger, RunLogger
 from utils.repo_utils import (
+    acquire_run_lock,
     build_backup_paths,
     is_archived_repository,
     normalize_repo_patterns,
     parse_repository_entry,
+    release_run_lock,
     repository_matches_filters,
 )
 
@@ -146,6 +149,11 @@ def build_parser():
         type=int,
         default=0,
         help="Additional retries per repository after a failure.",
+    )
+    parser.add_argument(
+        "--force-lock",
+        action="store_true",
+        help="Replace an existing active run lock for the selected provider/output root.",
     )
     return parser
 
@@ -765,10 +773,28 @@ def main(argv=None):
         branch_patterns=args.branch_patterns,
         default_branch_only=args.default_branch_only,
         repo_retries=args.repo_retries,
+        force_lock=args.force_lock,
         log_format=args.log_format,
     )
 
+    lock_info = None
+    exit_code = 1
     try:
+        lock_info = acquire_run_lock(
+            output_dir=args.output_dir,
+            provider=args.provider,
+            run_id=logger.run_id,
+            force_lock=args.force_lock,
+        )
+        logger.event(
+            "run.lock.acquire",
+            outcome="success",
+            provider=args.provider,
+            lock_path=lock_info["path"],
+            force_lock=args.force_lock,
+            replaced_stale=lock_info["replaced_stale"],
+            replaced_forced=lock_info["replaced_forced"],
+        )
         token = resolve_token(args.token_env, logger=logger)
         provider = create_provider(args, token)
         if not provider.auth_ok():
@@ -788,6 +814,25 @@ def main(argv=None):
 
         git_source = git_source_class(key_path=args.ssh_key_path)
         stats = run_backup(args, provider, git_source, logger=logger)
+        exit_code = 0 if stats["failed"] == 0 else 2
+        logger.event(
+            "run.finish",
+            outcome="success" if exit_code == 0 else "partial_failure",
+            provider=args.provider,
+            mode=args.mode,
+            processed=stats["processed"],
+            succeeded=stats["succeeded"],
+            skipped=stats["skipped"],
+            failed=stats["failed"],
+            failure_types=stats["failure_types"],
+        )
+        emit_text(
+            logger,
+            "All repos finished! "
+            f"processed={stats['processed']}, succeeded={stats['succeeded']}, "
+            f"skipped={stats['skipped']}, failed={stats['failed']}, "
+            f"failure_types={format_failure_counters(stats['failure_types'])}"
+        )
     except RepoDownloaderError as exc:
         logger.event(
             "run.finish",
@@ -797,34 +842,36 @@ def main(argv=None):
             error=str(exc),
         )
         emit_text(logger, f"[ERROR] {exc}")
-        logger.close()
-        return 1
+        exit_code = 1
     except KeyboardInterrupt:
         logger.event("run.finish", outcome="interrupted", level="WARNING", provider=args.provider)
         emit_text(logger, "\nInterrupted by user.")
+        exit_code = 130
+    finally:
+        if lock_info:
+            lock_path = lock_info["path"]
+            try:
+                release_run_lock(lock_path)
+                logger.event(
+                    "run.lock.release",
+                    outcome="success",
+                    provider=args.provider,
+                    lock_path=lock_path,
+                )
+            except RunLockError as exc:
+                logger.event(
+                    "run.lock.release",
+                    outcome="failed",
+                    level="ERROR",
+                    provider=args.provider,
+                    lock_path=lock_path,
+                    error=str(exc),
+                )
+                emit_text(logger, f"[ERROR] {exc}")
+                if exit_code == 0:
+                    exit_code = 1
         logger.close()
-        return 130
 
-    exit_code = 0 if stats["failed"] == 0 else 2
-    logger.event(
-        "run.finish",
-        outcome="success" if exit_code == 0 else "partial_failure",
-        provider=args.provider,
-        mode=args.mode,
-        processed=stats["processed"],
-        succeeded=stats["succeeded"],
-        skipped=stats["skipped"],
-        failed=stats["failed"],
-        failure_types=stats["failure_types"],
-    )
-    emit_text(
-        logger,
-        "All repos finished! "
-        f"processed={stats['processed']}, succeeded={stats['succeeded']}, "
-        f"skipped={stats['skipped']}, failed={stats['failed']}, "
-        f"failure_types={format_failure_counters(stats['failure_types'])}"
-    )
-    logger.close()
     return exit_code
 
 

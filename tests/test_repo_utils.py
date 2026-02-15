@@ -1,14 +1,22 @@
+import json
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from utils.repo_utils import (
+    acquire_run_lock,
     build_backup_paths,
+    build_run_lock_path,
     extract_workspace_and_name,
     filter_repositories_by_workspace,
     is_archived_repository,
     normalize_repo_patterns,
     parse_repository_entry,
+    release_run_lock,
     repository_matches_filters,
 )
+from utils.errors import RunLockError
 
 
 class TestRepoUtils(unittest.TestCase):  # pylint: disable=too-many-public-methods
@@ -123,6 +131,74 @@ class TestRepoUtils(unittest.TestCase):  # pylint: disable=too-many-public-metho
         self.assertTrue(matches)
         self.assertIsNone(reason)
         self.assertIsNone(detail)
+
+    def test_acquire_and_release_run_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            lock_info = acquire_run_lock(
+                output_dir=tmp_dir,
+                provider="bitbucket",
+                run_id="run-test",
+                force_lock=False,
+            )
+            self.assertTrue(os.path.exists(lock_info["path"]))
+            self.assertFalse(lock_info["replaced_stale"])
+            self.assertFalse(lock_info["replaced_forced"])
+
+            release_run_lock(lock_info["path"])
+            self.assertFalse(os.path.exists(lock_info["path"]))
+
+    def test_acquire_run_lock_replaces_stale_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            lock_path = build_run_lock_path(tmp_dir, "bitbucket")
+            with open(lock_path, "w", encoding="utf-8") as lock_file:
+                json.dump({"pid": 999999, "provider": "bitbucket", "run_id": "old"}, lock_file)
+
+            lock_info = acquire_run_lock(
+                output_dir=tmp_dir,
+                provider="bitbucket",
+                run_id="run-test",
+                force_lock=False,
+            )
+            self.assertTrue(lock_info["replaced_stale"])
+            self.assertFalse(lock_info["replaced_forced"])
+            release_run_lock(lock_info["path"])
+
+    def test_acquire_run_lock_rejects_active_lock_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            lock_path = build_run_lock_path(tmp_dir, "bitbucket")
+            with open(lock_path, "w", encoding="utf-8") as lock_file:
+                json.dump(
+                    {"pid": os.getpid(), "provider": "bitbucket", "run_id": "active-run"},
+                    lock_file,
+                )
+
+            with self.assertRaises(RunLockError):
+                acquire_run_lock(
+                    output_dir=tmp_dir,
+                    provider="bitbucket",
+                    run_id="run-test",
+                    force_lock=False,
+                )
+
+    def test_acquire_run_lock_force_replaces_active_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            lock_path = build_run_lock_path(tmp_dir, "bitbucket")
+            with open(lock_path, "w", encoding="utf-8") as lock_file:
+                json.dump(
+                    {"pid": os.getpid(), "provider": "bitbucket", "run_id": "active-run"},
+                    lock_file,
+                )
+
+            with patch("utils.repo_utils.is_process_running", return_value=True):
+                lock_info = acquire_run_lock(
+                    output_dir=tmp_dir,
+                    provider="bitbucket",
+                    run_id="run-test",
+                    force_lock=True,
+                )
+            self.assertFalse(lock_info["replaced_stale"])
+            self.assertTrue(lock_info["replaced_forced"])
+            release_run_lock(lock_info["path"])
 
 
 if __name__ == "__main__":
