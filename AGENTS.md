@@ -23,7 +23,10 @@ Future development should follow feature IDs and docs in `docs/`.
    - `python3 -m unittest discover -s tests -p "test_*.py"`
 6. Update docs impacted by the feature.
 7. Update feature status in `docs/FEATURE_CATALOG.md`.
-8. Open a PR targeting `develop`.
+8. Open a PR:
+   - Independent feature: target `develop`.
+   - Dependent feature in an active stack: target the immediate parent feature branch to avoid
+     duplicate diffs.
 
 ## Logging and Security Expectations
 - Never log token values, secrets, or raw sensitive paths.

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import downloader
-from utils.errors import ProviderConfigurationError
+from utils.errors import AuthenticationError, ProviderConfigurationError, RepositorySyncError
 from utils.log_utils import REDACTED_VALUE, RunLogger
 
 
@@ -108,6 +108,8 @@ class TestDownloader(unittest.TestCase):
                 "--branch-pattern",
                 "release/*",
                 "--default-branch-only",
+                "--repo-retries",
+                "2",
             ]
         )
         self.assertEqual("bitbucket", args.provider)
@@ -120,6 +122,7 @@ class TestDownloader(unittest.TestCase):
         self.assertEqual(["main"], args.branch)
         self.assertEqual(["release/*"], args.branch_pattern)
         self.assertTrue(args.default_branch_only)
+        self.assertEqual(2, args.repo_retries)
 
     def test_parser_accepts_repeatable_and_comma_separated_patterns(self):
         parser = downloader.build_parser()
@@ -189,6 +192,7 @@ class TestDownloader(unittest.TestCase):
             branch_names=[],
             branch_patterns=[],
             default_branch_only=False,
+            repo_retries=0,
         )
         provider = _FakeProvider()
         git_source = _FakeGitSource()
@@ -217,6 +221,7 @@ class TestDownloader(unittest.TestCase):
             branch_names=[],
             branch_patterns=[],
             default_branch_only=False,
+            repo_retries=0,
         )
         provider = _FakeProvider(
             repositories=[
@@ -251,6 +256,7 @@ class TestDownloader(unittest.TestCase):
             branch_names=[],
             branch_patterns=[],
             default_branch_only=False,
+            repo_retries=0,
         )
         provider = _FakeProvider(repositories=[{"repository": {"full_name": "acme/example"}}])
         git_source = _FakeGitSource()
@@ -278,6 +284,7 @@ class TestDownloader(unittest.TestCase):
             branch_names=[],
             branch_patterns=[],
             default_branch_only=False,
+            repo_retries=0,
         )
         provider = _FakeProvider(
             repositories=[
@@ -384,6 +391,7 @@ class TestDownloader(unittest.TestCase):
             branch_names=["dev"],
             branch_patterns=[],
             default_branch_only=False,
+            repo_retries=0,
         )
         provider = _FakeProvider(
             branches=[
@@ -401,6 +409,79 @@ class TestDownloader(unittest.TestCase):
         self.assertEqual(1, stats["succeeded"])
         checkout_calls = [call for call in git_source.calls if call[0] == "checkout_branch"]
         self.assertEqual([("checkout_branch", "dev")], checkout_calls)
+
+    def test_run_backup_retries_repository_after_sync_failure(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="mirror",
+            dry_run=False,
+            include=[],
+            exclude=[],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
+            repo_retries=1,
+        )
+        provider = _FakeProvider()
+        logger = _MemoryLogger()
+
+        class _FlakyGitSource(_FakeGitSource):
+            def __init__(self):
+                super().__init__()
+                self._clone_attempts = 0
+
+            def clone_repo(self, clone_url, local_path, mirror=False):
+                self._clone_attempts += 1
+                if self._clone_attempts == 1:
+                    raise RepositorySyncError("Failed cloning repository from x")
+                return super().clone_repo(clone_url, local_path, mirror=mirror)
+
+        git_source = _FlakyGitSource()
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(1, stats["processed"])
+        self.assertEqual(1, stats["succeeded"])
+        self.assertEqual(0, stats["failed"])
+        self.assertEqual(0, stats["failure_types"]["clone"])
+        retry_events = [event for event in logger.events if event["action"] == "repository.retry"]
+        self.assertEqual(1, len(retry_events))
+        self.assertEqual("clone", retry_events[0]["failure_type"])
+
+    def test_run_backup_failure_summary_classifies_auth_errors(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="mirror",
+            dry_run=False,
+            include=[],
+            exclude=[],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
+            repo_retries=0,
+        )
+        logger = _MemoryLogger()
+
+        class _AuthFailProvider(_FakeProvider):
+            def get_repository(self, workspace, name):
+                _ = workspace
+                _ = name
+                raise AuthenticationError("token expired")
+
+        provider = _AuthFailProvider()
+        git_source = _FakeGitSource()
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(1, stats["failed"])
+        self.assertEqual(1, stats["failure_types"]["auth"])
+        self.assertEqual(0, stats["failure_types"]["api"])
 
 
 if __name__ == "__main__":

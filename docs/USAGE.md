@@ -49,6 +49,7 @@ python3 downloader.py [options]
 - `--branch`: In working mode, include only specific branch names. Repeat or comma-separate values.
 - `--branch-pattern`: In working mode, include branches matching glob patterns.
 - `--default-branch-only`: In working mode, checkout only the repository default branch.
+- `--repo-retries`: Additional retries per repository after a failure, default `0`.
 
 ## Backup Modes
 ### `mirror`
@@ -146,6 +147,21 @@ Branch selector semantics:
 - Selectors apply only in `working` mode.
 - If selectors are omitted, all provider branches are considered.
 - `--default-branch-only` takes precedence over `--branch` and `--branch-pattern`.
+
+### Retry failed repositories
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --repo-retries 2
+```
+
+Retry semantics:
+- The command attempts each repository once, plus `--repo-retries` additional attempts.
+- Failure classification counters are included in the run summary (`api`, `auth`, `clone`,
+  `fetch`, `checkout`, `other`).
 
 ## Restore Notes
 - Mirror restore:

@@ -61,7 +61,7 @@ Status values:
 
 ### F004 Repository-Level Retry and Error Classification
 - Priority: `next`
-- Status: `next`
+- Status: `done`
 - Goal: classify failures (`api`, `auth`, `clone`, `fetch`, `checkout`) and support scoped retries.
 - Files:
   - `downloader.py`

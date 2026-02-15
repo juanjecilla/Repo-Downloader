@@ -53,6 +53,16 @@ python3 downloader.py \
   --dry-run
 ```
 
+### Profile: Retry transient repository failures
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --repo-retries 2
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
@@ -71,6 +81,8 @@ python3 downloader.py \
   ```bash
   python3 downloader.py ... > backup.log 2>&1
   ```
+- End-of-run output includes failure-type counters for failed repositories (`api`, `auth`,
+  `clone`, `fetch`, `checkout`, `other`) to help direct investigation.
 
 ## Failure Handling
 1. Authentication errors:
@@ -84,6 +96,7 @@ python3 downloader.py \
    - Review provider status pages.
 4. Repository-specific failures:
    - Re-run command and inspect the repository block.
+   - Increase `--repo-retries` for transient clone/fetch/api failures.
    - Confirm repository still exists and access is granted.
 
 ## Restore Validation

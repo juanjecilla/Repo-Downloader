@@ -29,6 +29,7 @@ PROVIDER_CLASS_PATHS = {
     "github": ("data.source.remote_sources", "GitHubSource"),
     "gitlab": ("data.source.remote_sources", "GitLabSource"),
 }
+FAILURE_TYPE_ORDER = ("api", "auth", "clone", "fetch", "checkout", "other")
 
 
 def build_parser():
@@ -138,6 +139,12 @@ def build_parser():
         action="store_true",
         help="In working mode, only checkout the repository default branch.",
     )
+    parser.add_argument(
+        "--repo-retries",
+        type=int,
+        default=0,
+        help="Additional retries per repository after a failure.",
+    )
     return parser
 
 
@@ -193,6 +200,44 @@ def normalize_cli_list(raw_values):
             if cleaned:
                 normalized.append(cleaned)
     return normalized
+
+
+def classify_repository_failure(exc):
+    if isinstance(exc, AuthenticationError):
+        return "auth"
+
+    if isinstance(exc, RemoteAPIError):
+        return "api"
+
+    if isinstance(exc, RepositorySyncError):
+        message = str(exc).lower()
+        if "checkout" in message:
+            return "checkout"
+        if "fetch" in message:
+            return "fetch"
+        if "clon" in message:
+            return "clone"
+        return "other"
+
+    if isinstance(exc, (KeyError, TypeError, ValueError)):
+        return "api"
+
+    return "other"
+
+
+def make_failure_counters():
+    return {failure_type: 0 for failure_type in FAILURE_TYPE_ORDER}
+
+
+def format_failure_counters(counters):
+    non_zero = [
+        f"{failure_type}={counters[failure_type]}"
+        for failure_type in FAILURE_TYPE_ORDER
+        if counters.get(failure_type, 0) > 0
+    ]
+    if non_zero:
+        return ", ".join(non_zero)
+    return "none"
 
 
 def get_default_branch_name(extended_repository):
@@ -432,6 +477,7 @@ def sync_working(
         )
         return
 
+    checkout_failures = []
     for branch_index, branch in enumerate(selected_branches):
         branch_name = branch.get("name")
         if not branch_name:
@@ -458,6 +504,7 @@ def sync_working(
         except RepositorySyncError as exc:
             duration_ms = int((time.monotonic() - branch_started_at) * 1000)
             emit_text(logger, f"\t\t[WARN] {exc}")
+            checkout_failures.append(branch_name)
             logger.event(
                 "sync.working.branch.checkout",
                 outcome="failed",
@@ -469,6 +516,125 @@ def sync_working(
                 error=str(exc),
                 duration_ms=duration_ms,
             )
+
+    if checkout_failures:
+        raise RepositorySyncError(
+            "One or more branch checkout operations failed: "
+            + ", ".join(checkout_failures)
+        )
+
+
+def sync_repository(args, provider, git_source, repository_entry, index, total_repositories, logger):
+    parsed = parse_repository_entry(repository_entry)
+    repo_workspace = parsed["workspace"]
+    repo_name = parsed["name"]
+    full_name = parsed["full_name"]
+    summary_repo = parsed["repository"]
+
+    matched_filters, filter_reason, filter_detail = repository_matches_filters(
+        full_name=full_name,
+        include_patterns=args.include,
+        exclude_patterns=args.exclude,
+    )
+    if not matched_filters:
+        dry_run_prefix = "[DRY-RUN] " if args.dry_run else ""
+        emit_text(
+            logger,
+            f"\t{dry_run_prefix}Skipping repository by filter: {filter_detail}.",
+        )
+        logger.event(
+            "repository.skip",
+            outcome="skipped",
+            provider=args.provider,
+            repository=full_name,
+            mode=args.mode,
+            reason=filter_reason,
+            detail=filter_detail,
+        )
+        return "skipped", full_name
+
+    logger.event(
+        "repository.start",
+        outcome="start",
+        provider=args.provider,
+        repository=full_name,
+        mode=args.mode,
+        index=index + 1,
+        total=total_repositories,
+    )
+    emit_text(logger, f"Starting {repo_name} repository {index + 1}/{total_repositories}")
+    extended_repo = provider.get_repository(repo_workspace, repo_name)
+    if extended_repo is None:
+        error_msg = f"Provider did not return details for repository '{full_name}'"
+        raise RemoteAPIError(error_msg)
+
+    if not args.include_archived and is_archived_repository(summary_repo, extended_repo):
+        emit_text(logger, "\tSkipping archived repository.")
+        logger.event(
+            "repository.skip",
+            outcome="skipped",
+            provider=args.provider,
+            repository=full_name,
+            mode=args.mode,
+            reason="archived",
+        )
+        return "skipped", full_name
+
+    clone_links = extended_repo.get("links", {}).get("clone", [])
+    clone_url = url_utils.get_ssh_url_from_list(clone_links)
+    if not clone_url:
+        emit_text(logger, "\tSkipping repository without SSH clone URL.")
+        logger.event(
+            "repository.skip",
+            outcome="skipped",
+            provider=args.provider,
+            repository=full_name,
+            mode=args.mode,
+            reason="missing_ssh_clone_url",
+        )
+        return "skipped", full_name
+
+    paths = build_backup_paths(args.output_dir, args.provider, repo_workspace, repo_name)
+    if not args.dry_run:
+        os.makedirs(paths["base_dir"], exist_ok=True)
+    default_branch_name = get_default_branch_name(extended_repo)
+
+    for mode in selected_modes(args.mode):
+        if mode == "mirror":
+            sync_mirror(
+                git_source,
+                clone_url,
+                paths["mirror_path"],
+                args.dry_run,
+                logger,
+                args.provider,
+                full_name,
+            )
+        elif mode == "working":
+            sync_working(
+                git_source,
+                provider,
+                full_name,
+                clone_url,
+                paths["working_path"],
+                args.dry_run,
+                logger,
+                args.provider,
+                args.branch_names,
+                args.branch_patterns,
+                args.default_branch_only,
+                default_branch_name,
+            )
+
+    emit_text(logger, f"Finishing {repo_name} repository")
+    logger.event(
+        "repository.finish",
+        outcome="success",
+        provider=args.provider,
+        repository=full_name,
+        mode=args.mode,
+    )
+    return "success", full_name
 
 
 def run_backup(args, provider, git_source, logger=None):
@@ -487,141 +653,80 @@ def run_backup(args, provider, git_source, logger=None):
         repository_count=len(repositories),
     )
     emit_text(logger, f"{len(repositories)} repositories found!")
-    stats = {"processed": 0, "succeeded": 0, "skipped": 0, "failed": 0}
+    stats = {
+        "processed": 0,
+        "succeeded": 0,
+        "skipped": 0,
+        "failed": 0,
+        "failure_types": make_failure_counters(),
+    }
 
     for index, repository_entry in enumerate(repositories):
         stats["processed"] += 1
         repository_for_log = "unknown"
-        try:
-            parsed = parse_repository_entry(repository_entry)
-            repo_workspace = parsed["workspace"]
-            repo_name = parsed["name"]
-            full_name = parsed["full_name"]
-            summary_repo = parsed["repository"]
-            repository_for_log = full_name
-
-            matched_filters, filter_reason, filter_detail = repository_matches_filters(
-                full_name=full_name,
-                include_patterns=args.include,
-                exclude_patterns=args.exclude,
-            )
-            if not matched_filters:
-                dry_run_prefix = "[DRY-RUN] " if args.dry_run else ""
-                emit_text(
+        max_attempts = max(1, args.repo_retries + 1)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                outcome, repository_for_log = sync_repository(
+                    args,
+                    provider,
+                    git_source,
+                    repository_entry,
+                    index,
+                    len(repositories),
                     logger,
-                    f"\t{dry_run_prefix}Skipping repository by filter: {filter_detail}.",
                 )
-                logger.event(
-                    "repository.skip",
-                    outcome="skipped",
-                    provider=args.provider,
-                    repository=full_name,
-                    mode=args.mode,
-                    reason=filter_reason,
-                    detail=filter_detail,
-                )
-                stats["skipped"] += 1
-                continue
-
-            logger.event(
-                "repository.start",
-                outcome="start",
-                provider=args.provider,
-                repository=full_name,
-                mode=args.mode,
-                index=index + 1,
-                total=len(repositories),
-            )
-            emit_text(logger, f"Starting {repo_name} repository {index + 1}/{len(repositories)}")
-            extended_repo = provider.get_repository(repo_workspace, repo_name)
-            if extended_repo is None:
-                error_msg = (
-                    f"Provider did not return details for repository '{full_name}'"
-                )
-                raise RemoteAPIError(error_msg)
-
-            if not args.include_archived and is_archived_repository(summary_repo, extended_repo):
-                emit_text(logger, "\tSkipping archived repository.")
-                logger.event(
-                    "repository.skip",
-                    outcome="skipped",
-                    provider=args.provider,
-                    repository=full_name,
-                    mode=args.mode,
-                    reason="archived",
-                )
-                stats["skipped"] += 1
-                continue
-
-            clone_links = extended_repo.get("links", {}).get("clone", [])
-            clone_url = url_utils.get_ssh_url_from_list(clone_links)
-            if not clone_url:
-                emit_text(logger, "\tSkipping repository without SSH clone URL.")
-                logger.event(
-                    "repository.skip",
-                    outcome="skipped",
-                    provider=args.provider,
-                    repository=full_name,
-                    mode=args.mode,
-                    reason="missing_ssh_clone_url",
-                )
-                stats["skipped"] += 1
-                continue
-
-            paths = build_backup_paths(args.output_dir, args.provider, repo_workspace, repo_name)
-            if not args.dry_run:
-                os.makedirs(paths["base_dir"], exist_ok=True)
-            default_branch_name = get_default_branch_name(extended_repo)
-
-            for mode in selected_modes(args.mode):
-                if mode == "mirror":
-                    sync_mirror(
-                        git_source,
-                        clone_url,
-                        paths["mirror_path"],
-                        args.dry_run,
-                        logger,
-                        args.provider,
-                        full_name,
+                if outcome == "skipped":
+                    stats["skipped"] += 1
+                else:
+                    stats["succeeded"] += 1
+                break
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                AuthenticationError,
+                RemoteAPIError,
+                RepositorySyncError,
+            ) as exc:
+                failure_type = classify_repository_failure(exc)
+                if attempt < max_attempts:
+                    logger.event(
+                        "repository.retry",
+                        outcome="retrying",
+                        level="WARNING",
+                        provider=args.provider,
+                        repository=repository_for_log,
+                        mode=args.mode,
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                        failure_type=failure_type,
+                        error=str(exc),
                     )
-                elif mode == "working":
-                    sync_working(
-                        git_source,
-                        provider,
-                        full_name,
-                        clone_url,
-                        paths["working_path"],
-                        args.dry_run,
+                    emit_text(
                         logger,
-                        args.provider,
-                        args.branch_names,
-                        args.branch_patterns,
-                        args.default_branch_only,
-                        default_branch_name,
+                        f"[WARN] Repository failed ({failure_type}), retrying "
+                        f"{attempt}/{max_attempts - 1}: {exc}",
                     )
+                    continue
 
-            emit_text(logger, f"Finishing {repo_name} repository")
-            logger.event(
-                "repository.finish",
-                outcome="success",
-                provider=args.provider,
-                repository=full_name,
-                mode=args.mode,
-            )
-            stats["succeeded"] += 1
-        except (KeyError, TypeError, ValueError, RemoteAPIError, RepositorySyncError) as exc:
-            logger.event(
-                "repository.finish",
-                outcome="failed",
-                level="ERROR",
-                provider=args.provider,
-                repository=repository_for_log,
-                mode=args.mode,
-                error=str(exc),
-            )
-            emit_text(logger, f"[ERROR] Failed processing repository entry: {exc}")
-            emit_text(logger, "Moving to next repository.")
-            stats["failed"] += 1
+                logger.event(
+                    "repository.finish",
+                    outcome="failed",
+                    level="ERROR",
+                    provider=args.provider,
+                    repository=repository_for_log,
+                    mode=args.mode,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    failure_type=failure_type,
+                    error=str(exc),
+                )
+                emit_text(logger, f"[ERROR] Failed processing repository entry: {exc}")
+                emit_text(logger, "Moving to next repository.")
+                stats["failed"] += 1
+                stats["failure_types"][failure_type] += 1
+                break
 
     return stats
 
@@ -629,6 +734,8 @@ def run_backup(args, provider, git_source, logger=None):
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.repo_retries < 0:
+        parser.error("--repo-retries must be zero or a positive integer.")
     args.include = normalize_repo_patterns(args.include)
     args.exclude = normalize_repo_patterns(args.exclude)
     args.branch_names = normalize_cli_list(args.branch)
@@ -651,6 +758,7 @@ def main(argv=None):
         branch_names=args.branch_names,
         branch_patterns=args.branch_patterns,
         default_branch_only=args.default_branch_only,
+        repo_retries=args.repo_retries,
         log_format=args.log_format,
     )
 
@@ -701,12 +809,14 @@ def main(argv=None):
         succeeded=stats["succeeded"],
         skipped=stats["skipped"],
         failed=stats["failed"],
+        failure_types=stats["failure_types"],
     )
     emit_text(
         logger,
         "All repos finished! "
         f"processed={stats['processed']}, succeeded={stats['succeeded']}, "
-        f"skipped={stats['skipped']}, failed={stats['failed']}"
+        f"skipped={stats['skipped']}, failed={stats['failed']}, "
+        f"failure_types={format_failure_counters(stats['failure_types'])}"
     )
     logger.close()
     return exit_code
