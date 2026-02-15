@@ -117,6 +117,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "json",
                 "--log-file",
                 "./logs/run.log",
+                "--summary-file",
+                "./reports/summary.json",
                 "--include",
                 "acme/*",
                 "--exclude",
@@ -145,6 +147,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(10, args.retain_count)
         self.assertEqual("json", args.log_format)
         self.assertEqual("./logs/run.log", args.log_file)
+        self.assertEqual("./reports/summary.json", args.summary_file)
         self.assertEqual(["acme/*"], args.include)
         self.assertEqual(["acme/private-*"], args.exclude)
         self.assertEqual(["main"], args.branch)
@@ -305,6 +308,9 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertIn("sync.mirror.clone", logged_actions)
         self.assertIn("sync.working.clone", logged_actions)
         self.assertIn("repository.finish", logged_actions)
+        self.assertIn("mode_duration_ms", stats)
+        self.assertIn("mirror", stats["mode_duration_ms"])
+        self.assertIn("working", stats["mode_duration_ms"])
 
     def test_run_backup_include_filter_skips_non_matching_repo(self):
         args = SimpleNamespace(
@@ -930,6 +936,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
             "skipped": 0,
             "failed": 0,
             "failure_types": downloader.make_failure_counters(),
+            "mode_duration_ms": {"mirror": 0, "working": 0},
         }
         with patch(
             "downloader.acquire_run_lock",
@@ -1025,6 +1032,25 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
 
         self.assertEqual(1, result["branch_count"])
         self.assertEqual(1, result["remote_ref_count"])
+
+    def test_write_summary_report_creates_json_file(self):
+        payload = {
+            "provider": "bitbucket",
+            "mode": "both",
+            "processed": 2,
+            "succeeded": 2,
+            "failed": 0,
+            "failure_types": downloader.make_failure_counters(),
+            "mode_duration_ms": {"mirror": 15, "working": 20},
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            summary_path = os.path.join(tmp_dir, "summary.json")
+            written_path = downloader.write_summary_report(summary_path, payload)
+            with open(written_path, "r", encoding="utf-8") as summary_file:
+                loaded = json.load(summary_file)
+
+        self.assertEqual(payload["provider"], loaded["provider"])
+        self.assertEqual(payload["mode_duration_ms"], loaded["mode_duration_ms"])
 
 
 if __name__ == "__main__":
