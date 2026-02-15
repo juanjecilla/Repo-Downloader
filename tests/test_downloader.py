@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+
 import argparse
 import importlib.util
 import io
