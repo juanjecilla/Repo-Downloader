@@ -93,7 +93,7 @@ Status values:
 
 ### F006 GitHub Provider Implementation
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: implement real GitHub API support with token auth.
 - Files:
   - `data/source/remote_sources.py`

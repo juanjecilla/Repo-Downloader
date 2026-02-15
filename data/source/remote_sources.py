@@ -110,6 +110,139 @@ class BitbucketSource(RemoteProvider):
         return self.list_branches(name)
 
 
+class GitHubSource(RemoteProvider):
+    provider_name = "github"
+    BASE_API_URL = "https://api.github.com/"
+
+    def __init__(self, username, token, timeout=20, retries=3):
+        self._username = username
+        self._token = token
+        self._timeout = timeout
+        self._session = requests.Session()
+        self._session.headers.update(
+            {
+                "Authorization": f"Bearer {self._token}",
+                "Accept": "application/vnd.github+json",
+            }
+        )
+
+        retry = Retry(
+            total=retries,
+            connect=retries,
+            read=retries,
+            status=retries,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods={"GET"},
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self._session.mount("https://", adapter)
+
+        self._current_user = None
+        self._auth_error = None
+        try:
+            self._current_user = self.get_user_info()
+        except (AuthenticationError, RemoteAPIError) as exc:
+            self._auth_error = str(exc)
+
+    def _request(self, url, params=None):
+        try:
+            response = self._session.get(url, params=params, timeout=self._timeout)
+        except requests.RequestException as exc:
+            raise RemoteAPIError(f"Request to '{url}' failed: {exc}") from exc
+
+        if response.status_code in (401, 403):
+            raise AuthenticationError(
+                f"Authentication failed for '{url}' "
+                f"(status {response.status_code})"
+            )
+        if response.status_code >= 400:
+            raise RemoteAPIError(f"Request to '{url}' failed with status {response.status_code}")
+        return response
+
+    def _request_json(self, url, params=None):
+        response = self._request(url, params=params)
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise RemoteAPIError(f"Invalid JSON received from '{url}'") from exc
+
+    def _get_paginated_results(self, url, params=None):
+        values = []
+        next_url = url
+        next_params = params
+
+        while next_url:
+            response = self._request(next_url, params=next_params)
+            try:
+                page_values = response.json()
+            except ValueError as exc:
+                raise RemoteAPIError(f"Invalid JSON received from '{next_url}'") from exc
+
+            if not isinstance(page_values, list):
+                raise RemoteAPIError(
+                    f"Paginated endpoint '{next_url}' returned a non-list payload"
+                )
+
+            values.extend(page_values)
+            next_url = response.links.get("next", {}).get("url")
+            next_params = None
+
+        return values
+
+    def _normalize_repository_payload(self, repository):
+        clone_links = []
+        ssh_url = repository.get("ssh_url")
+        if ssh_url:
+            clone_links.append({"name": "ssh", "href": ssh_url})
+        https_url = repository.get("clone_url")
+        if https_url:
+            clone_links.append({"name": "https", "href": https_url})
+
+        links = repository.setdefault("links", {})
+        links["clone"] = clone_links
+        return repository
+
+    def get_user_info(self):
+        return self._request_json(self.BASE_API_URL + "user")
+
+    def list_repositories(self, workspace=None, role="member"):
+        _ = role
+        if workspace:
+            url = f"{self.BASE_API_URL}orgs/{workspace}/repos"
+            return self._get_paginated_results(url, params={"per_page": 100, "type": "all"})
+
+        url = self.BASE_API_URL + "user/repos"
+        return self._get_paginated_results(
+            url,
+            params={
+                "per_page": 100,
+                "affiliation": "owner,collaborator,organization_member",
+                "visibility": "all",
+            },
+        )
+
+    def get_repository(self, workspace, name):
+        url = f"{self.BASE_API_URL}repos/{workspace}/{name}"
+        repository = self._request_json(url)
+        return self._normalize_repository_payload(repository)
+
+    def list_branches(self, full_name):
+        url = f"{self.BASE_API_URL}repos/{full_name}/branches"
+        return self._get_paginated_results(url, params={"per_page": 100})
+
+    @property
+    def current_user(self):
+        return self._current_user
+
+    def auth_ok(self):
+        return self._current_user is not None and self._auth_error is None
+
+    @property
+    def auth_error(self):
+        return self._auth_error
+
+
 class _NotImplementedProvider(RemoteProvider):
     provider_name = "not-implemented"
 
@@ -138,13 +271,6 @@ class _NotImplementedProvider(RemoteProvider):
     @property
     def auth_error(self):
         return self._auth_error
-
-
-class GitHubSource(_NotImplementedProvider):
-    provider_name = "github"
-
-    def __init__(self, *_args, **_kwargs):
-        super().__init__(self.provider_name)
 
 
 class GitLabSource(_NotImplementedProvider):

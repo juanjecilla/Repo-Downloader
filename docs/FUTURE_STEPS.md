@@ -7,7 +7,7 @@ Use it with `docs/FEATURE_CATALOG.md`.
 - Bitbucket provider works with retries/timeouts.
 - Backup modes `mirror`, `working`, `both` are implemented.
 - Workspace filter, archive toggle, dry-run, and output layout are implemented.
-- GitHub/GitLab providers are stubs.
+- GitHub provider is implemented; GitLab provider remains a stub.
 
 ## Phase 1: Reliability and Operability (P1)
 Goal: make production backup runs predictable and easy to debug.
@@ -41,6 +41,9 @@ Goal: support multi-provider backups without changing CLI semantics.
 Definition of done:
 - `--provider github` and `--provider gitlab` perform real backups.
 - All providers share equivalent behavior for mode/output/filter options.
+
+Progress:
+- `F006` completed.
 
 ## Phase 3: Backup Product Features (P3)
 Goal: improve recovery workflows and storage management.

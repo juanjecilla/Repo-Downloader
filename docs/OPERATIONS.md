@@ -32,6 +32,16 @@ python3 downloader.py \
   --output-dir ./backups
 ```
 
+### Profile: GitHub organization backup
+```bash
+python3 downloader.py \
+  --provider github \
+  --token-env GITHUB_TOKEN \
+  --workspace acme-org \
+  --mode both \
+  --output-dir ./backups
+```
+
 ### Profile: Scoped backup with include/exclude filters
 ```bash
 python3 downloader.py \
