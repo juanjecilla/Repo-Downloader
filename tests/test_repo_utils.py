@@ -54,16 +54,16 @@ class TestRepoUtils(unittest.TestCase):  # pylint: disable=too-many-public-metho
     def test_build_backup_paths(self):
         paths = build_backup_paths("./backups", "bitbucket", "acme", "repo")
         self.assertEqual(
-            os.path.join(".", "backups", "bitbucket", "acme"),
-            paths["base_dir"],
+            os.path.normpath(os.path.join(".", "backups", "bitbucket", "acme")),
+            os.path.normpath(paths["base_dir"]),
         )
         self.assertEqual(
-            os.path.join(".", "backups", "bitbucket", "acme", "repo.git"),
-            paths["mirror_path"],
+            os.path.normpath(os.path.join(".", "backups", "bitbucket", "acme", "repo.git")),
+            os.path.normpath(paths["mirror_path"]),
         )
         self.assertEqual(
-            os.path.join(".", "backups", "bitbucket", "acme", "repo"),
-            paths["working_path"],
+            os.path.normpath(os.path.join(".", "backups", "bitbucket", "acme", "repo")),
+            os.path.normpath(paths["working_path"]),
         )
 
     def test_normalize_repo_patterns_expands_comma_values(self):
