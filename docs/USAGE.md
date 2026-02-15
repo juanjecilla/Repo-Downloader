@@ -50,6 +50,7 @@ python3 downloader.py [options]
 - `--branch-pattern`: In working mode, include branches matching glob patterns.
 - `--default-branch-only`: In working mode, checkout only the repository default branch.
 - `--repo-retries`: Additional retries per repository after a failure, default `0`.
+- `--force-lock`: Replace an active/stale run lock for the selected provider/output root.
 
 ## Backup Modes
 ### `mirror`
@@ -162,6 +163,13 @@ Retry semantics:
 - The command attempts each repository once, plus `--repo-retries` additional attempts.
 - Failure classification counters are included in the run summary (`api`, `auth`, `clone`,
   `fetch`, `checkout`, `other`).
+
+### Run locking
+Each run acquires a lock file under the output root:
+- `<output>/.repo-downloader-<provider>.lock`
+
+If another process is active for the same provider/output root, the run exits with an error.
+Use `--force-lock` only when you are sure the existing lock is stale or should be replaced.
 
 ## Restore Notes
 - Mirror restore:

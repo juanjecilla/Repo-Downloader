@@ -14,7 +14,8 @@ disable=
     invalid-name,
     unused-argument,
     import-outside-toplevel,
-    consider-using-with
+    consider-using-with,
+    duplicate-code
 
 [FORMAT]
 max-line-length=100

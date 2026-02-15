@@ -63,6 +63,16 @@ python3 downloader.py \
   --repo-retries 2
 ```
 
+### Profile: Force lock replacement (exception use)
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --force-lock
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
@@ -83,6 +93,7 @@ python3 downloader.py \
   ```
 - End-of-run output includes failure-type counters for failed repositories (`api`, `auth`,
   `clone`, `fetch`, `checkout`, `other`) to help direct investigation.
+- Lock acquire/release events are logged with lock path and replacement metadata.
 
 ## Failure Handling
 1. Authentication errors:
@@ -119,6 +130,8 @@ Run this periodically to verify backups:
 - Keep backup root on durable storage.
 - Avoid deleting existing backup paths outside planned retention procedures.
 - Preserve mirrors as source-of-truth backup artifacts.
+- Never run two jobs against the same provider/output root concurrently.
+- Use `--force-lock` only when an existing lock is stale or intentionally superseded.
 
 ## Pull Request Review Automation
 - CodeRabbit automatic review is configured in `.coderabbit.yaml`.

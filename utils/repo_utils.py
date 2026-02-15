@@ -1,6 +1,10 @@
 import fnmatch
+import json
 import os
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
+
+from utils.errors import RunLockError
 
 
 def extract_workspace_and_name(full_name: str) -> Tuple[str, str]:
@@ -113,3 +117,107 @@ def repository_matches_filters(
             return False, "exclude_match", detail
 
     return True, None, None
+
+
+def utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def build_run_lock_path(output_dir: str, provider: str) -> str:
+    output_root = os.path.expanduser(output_dir)
+    lock_name = f".repo-downloader-{provider}.lock"
+    return os.path.join(output_root, lock_name)
+
+
+def _read_lock_metadata(lock_path: str) -> Dict:
+    try:
+        with open(lock_path, "r", encoding="utf-8") as lock_file:
+            payload = json.load(lock_file)
+            if isinstance(payload, dict):
+                return payload
+    except (OSError, ValueError, TypeError):
+        return {}
+    return {}
+
+
+def is_process_running(pid: Optional[int]) -> bool:
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def acquire_run_lock(
+    output_dir: str,
+    provider: str,
+    run_id: str,
+    force_lock: bool = False,
+) -> Dict[str, object]:
+    lock_path = build_run_lock_path(output_dir, provider)
+    output_root = os.path.dirname(lock_path)
+    os.makedirs(output_root, exist_ok=True)
+
+    replaced_stale = False
+    replaced_forced = False
+
+    lock_payload = {
+        "pid": os.getpid(),
+        "provider": provider,
+        "run_id": run_id,
+        "created_at": utc_now_iso(),
+    }
+    while True:
+        try:
+            with open(lock_path, "x", encoding="utf-8") as lock_file:
+                json.dump(lock_payload, lock_file, sort_keys=True)
+                lock_file.write("\n")
+            break
+        except FileExistsError as exists_error:
+            existing_lock = _read_lock_metadata(lock_path)
+            existing_pid = existing_lock.get("pid")
+            existing_run_id = existing_lock.get("run_id")
+            if is_process_running(existing_pid):
+                if not force_lock:
+                    raise RunLockError(
+                        "Another backup run is active for this output root "
+                        f"(provider={provider}, pid={existing_pid}, run_id={existing_run_id}). "
+                        "Use --force-lock to replace the existing lock."
+                    ) from exists_error
+                replaced_forced = True
+            else:
+                replaced_stale = True
+
+            try:
+                os.remove(lock_path)
+            except FileNotFoundError:
+                # Another process changed the lock while we were resolving it; retry.
+                continue
+            except OSError as remove_error:
+                raise RunLockError(
+                    f"Unable to replace existing run lock '{lock_path}': {remove_error}"
+                ) from remove_error
+        except OSError as create_error:
+            raise RunLockError(
+                f"Unable to create run lock '{lock_path}': {create_error}"
+            ) from create_error
+
+    return {
+        "path": lock_path,
+        "replaced_stale": replaced_stale,
+        "replaced_forced": replaced_forced,
+    }
+
+
+def release_run_lock(lock_path: str) -> None:
+    try:
+        os.remove(lock_path)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RunLockError(f"Unable to remove run lock '{lock_path}': {exc}") from exc

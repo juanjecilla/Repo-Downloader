@@ -20,3 +20,7 @@ class RemoteAPIError(RepoDownloaderError):
 
 class RepositorySyncError(RepoDownloaderError):
     """Raised for clone/fetch/checkout failures."""
+
+
+class RunLockError(RepoDownloaderError):
+    """Raised when a backup run lock cannot be acquired."""

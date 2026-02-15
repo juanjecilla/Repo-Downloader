@@ -76,7 +76,7 @@ Status values:
 
 ### F005 Run Locking
 - Priority: `next`
-- Status: `next`
+- Status: `done`
 - Goal: prevent concurrent runs against the same output root.
 - Files:
   - `downloader.py`
