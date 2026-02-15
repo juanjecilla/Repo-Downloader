@@ -277,6 +277,10 @@ Run this periodically to verify backups:
 - Use `--force-lock` only when an existing lock is stale or intentionally superseded.
 - Keep provider runs separate if needed; pathing is deterministic by provider under `<output>/<provider>/`.
 
+## Pull Request Review Automation
+- CodeRabbit automatic review is configured in `.coderabbit.yaml`.
+- Any pull request targeting `main` or `develop` triggers auto review, including draft pull requests.
+
 ## Future Operational Enhancements
 Future operational work items are tracked in:
 - `docs/FUTURE_STEPS.md`

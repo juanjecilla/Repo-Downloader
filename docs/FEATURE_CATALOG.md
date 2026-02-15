@@ -301,6 +301,18 @@ Status values:
   - Published compatibility matrix.
   - CI executes representative matrix coverage.
 
+### F022 Code Review Automation on Protected Branches
+- Priority: `next`
+- Status: `done`
+- Goal: ensure CodeRabbit auto review runs for pull requests targeting `main` and `develop`.
+- Files:
+  - `.coderabbit.yaml`
+  - `docs/OPERATIONS.md`
+- Acceptance criteria:
+  - `.coderabbit.yaml` enables auto review.
+  - Base branches include `main` and `develop`.
+  - Draft pull requests are included in auto review scope.
+
 ## Already Implemented Features (Reference)
 
 ### B001 CLI Modes and Provider Selection

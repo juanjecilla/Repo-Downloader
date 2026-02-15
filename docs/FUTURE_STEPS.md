@@ -91,6 +91,7 @@ Goal: support larger organizations and safer operations.
 2. Add metrics/health summary output and optional Prometheus text export (`F019`).
 3. Add secret handling hardening and redaction (`F020`).
 4. Add compatibility matrix + regression suite (`F021`).
+5. Configure PR review automation for `main` and `develop` (`F022`).
 
 Definition of done:
 - High-volume org backup runs complete predictably.
@@ -101,9 +102,10 @@ Progress:
 - `F019` completed.
 - `F020` completed.
 - `F021` completed.
+- `F022` completed.
 
 Roadmap status:
-- All currently cataloged roadmap features (`F001` through `F021`) are complete.
+- All currently cataloged roadmap features (`F001` through `F022`) are complete.
 - New work should be added as new feature IDs in `docs/FEATURE_CATALOG.md`.
 
 ## File Ownership Map For Future Work
