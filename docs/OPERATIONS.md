@@ -117,6 +117,18 @@ python3 downloader.py \
   --retain-count 20
 ```
 
+### Profile: Inventory existing backups
+```bash
+python3 downloader.py list-backups --output-dir ./backups
+```
+
+### Profile: Validate restore drill
+```bash
+python3 downloader.py validate-restore \
+  --backup-path ./backups/bitbucket/acme/api-service.git \
+  --restore-dir /tmp/api-service-restore
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
