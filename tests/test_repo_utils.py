@@ -11,7 +11,7 @@ from utils.repo_utils import (
 )
 
 
-class TestRepoUtils(unittest.TestCase):
+class TestRepoUtils(unittest.TestCase):  # pylint: disable=too-many-public-methods
     def test_extract_workspace_and_name(self):
         workspace, repo_name = extract_workspace_and_name("acme/my-repo")
         self.assertEqual("acme", workspace)

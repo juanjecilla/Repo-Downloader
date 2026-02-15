@@ -14,6 +14,7 @@ Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bi
 - Dry-run mode to preview changes before cloning/fetching.
 - Branch selection controls for working-mode checkout (`--branch`, `--branch-pattern`, `--default-branch-only`).
 - Include/exclude repository filtering with glob patterns (`workspace/repo`).
+- Per-repository retries with failure classification summary (`--repo-retries`).
 
 ## Quick Start
 1. Install dependencies:
