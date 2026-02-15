@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repo-downloader"
+version = "0.1.0"
+description = "CLI tool for backing up remote repositories."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "GitPython",
+  "requests",
+  "PyYAML",
+  "tomli; python_version < '3.11'",
+]
+
+[project.scripts]
+repo-downloader = "downloader:main"
+
+[tool.setuptools]
+py-modules = ["downloader"]
