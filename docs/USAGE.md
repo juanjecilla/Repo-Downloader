@@ -4,7 +4,9 @@
 - Python 3.8+
 - `git` installed and available in `PATH`
 - SSH key configured for repository access
-- Bitbucket app password (for current production provider support)
+- Provider credentials:
+  - Bitbucket app password.
+  - GitHub personal access token (classic or fine-grained with repository read access).
 
 Install dependencies:
 ```bash
@@ -96,6 +98,16 @@ python3 downloader.py \
   --output-dir ./backups
 ```
 
+### GitHub backup for all accessible repositories
+```bash
+export GITHUB_TOKEN="***"
+python3 downloader.py \
+  --provider github \
+  --token-env GITHUB_TOKEN \
+  --mode both \
+  --output-dir ./backups
+```
+
 ### Dry run preview
 ```bash
 python3 downloader.py \
@@ -179,7 +191,7 @@ Use `--force-lock` only when you are sure the existing lock is stale or should b
 - Working copy backups are directly browsable as regular repositories.
 
 ## Known Limitations
-- GitHub and GitLab providers are currently stubs and intentionally return not-implemented status.
+- GitLab provider is currently a stub and intentionally returns not-implemented status.
 
 ## Exit Codes
 - `0`: Completed without repository failures.
