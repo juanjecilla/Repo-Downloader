@@ -7,7 +7,7 @@ Use it with `docs/FEATURE_CATALOG.md`.
 - Bitbucket provider works with retries/timeouts.
 - Backup modes `mirror`, `working`, `both` are implemented.
 - Workspace filter, archive toggle, dry-run, and output layout are implemented.
-- GitHub provider is implemented; GitLab provider remains a stub.
+- GitHub and GitLab providers are implemented.
 
 ## Phase 1: Reliability and Operability (P1)
 Goal: make production backup runs predictable and easy to debug.
@@ -100,6 +100,11 @@ Progress:
 - `F018` completed.
 - `F019` completed.
 - `F020` completed.
+- `F021` completed.
+
+Roadmap status:
+- All currently cataloged roadmap features (`F001` through `F021`) are complete.
+- New work should be added as new feature IDs in `docs/FEATURE_CATALOG.md`.
 
 ## File Ownership Map For Future Work
 - CLI orchestration: `downloader.py`

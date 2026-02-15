@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+
 import argparse
 import importlib.util
 import io
@@ -1042,6 +1044,84 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
 
         self.assertEqual(1, exit_code)
         self.assertIn("--backup-path is required", buffer.getvalue())
+
+    def test_main_summary_includes_compatibility_report(self):
+        class _FakeProviderWithAuth:
+            def auth_ok(self):
+                return True
+
+            @property
+            def auth_error(self):
+                return None
+
+        class _FakeGitModule:
+            class GitSource:
+                def __init__(self, key_path):
+                    self.key_path = key_path
+
+        stats = {
+            "processed": 1,
+            "succeeded": 1,
+            "skipped": 0,
+            "failed": 0,
+            "failure_types": downloader.make_failure_counters(),
+            "mode_duration_ms": {"mirror": 0, "working": 0},
+        }
+        compatibility_report = {
+            "python_version": "3.11.8",
+            "minimum_python_version": "3.8",
+            "python_supported": True,
+            "platform": "linux",
+            "supported_platforms": ["linux", "macos", "windows"],
+            "platform_supported": True,
+            "git_version_raw": "git version 2.44.0",
+            "git_version": "2.44.0",
+            "minimum_git_version": "2.30.0",
+            "git_supported": True,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            summary_path = os.path.join(tmp_dir, "summary.json")
+            with patch(
+                "downloader.acquire_run_lock",
+                return_value={
+                    "path": os.path.join(tmp_dir, "repo-downloader.lock"),
+                    "replaced_stale": False,
+                    "replaced_forced": False,
+                },
+            ):
+                with patch("downloader.release_run_lock"):
+                    with patch("downloader.resolve_token", return_value="token-value"):
+                        with patch(
+                            "downloader.create_provider",
+                            return_value=_FakeProviderWithAuth(),
+                        ):
+                            with patch(
+                                "downloader.importlib.import_module",
+                                return_value=_FakeGitModule(),
+                            ):
+                                with patch("downloader.run_backup", return_value=stats):
+                                    with patch(
+                                        "downloader.build_runtime_compatibility_report",
+                                        return_value=compatibility_report,
+                                    ):
+                                        exit_code = downloader.main(
+                                            [
+                                                "--provider",
+                                                "bitbucket",
+                                                "--username",
+                                                "my-user",
+                                                "--token-env",
+                                                "BB_TOKEN",
+                                                "--summary-file",
+                                                summary_path,
+                                            ]
+                                        )
+
+            self.assertEqual(0, exit_code)
+            with open(summary_path, "r", encoding="utf-8") as summary_file:
+                payload = json.load(summary_file)
+            self.assertEqual(compatibility_report, payload["compatibility"])
 
     def test_perform_restore_validation_checks_clone_and_refs(self):
         class _FakeRepoObject:
