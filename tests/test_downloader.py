@@ -999,11 +999,11 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                         "downloader.create_provider",
                         return_value=_FakeProviderWithAuth(),
                     ):
-                        with patch(
-                            "downloader.importlib.import_module",
-                            return_value=_FakeGitModule(),
-                        ):
-                            with patch("downloader.run_backup", return_value=stats):
+                        with patch("downloader.run_backup", return_value=stats):
+                            with patch(
+                                "downloader.importlib.import_module",
+                                return_value=_FakeGitModule(),
+                            ):
                                 exit_code = downloader.main(
                                     [
                                         "--provider",
@@ -1096,11 +1096,11 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                             "downloader.create_provider",
                             return_value=_FakeProviderWithAuth(),
                         ):
-                            with patch(
-                                "downloader.importlib.import_module",
-                                return_value=_FakeGitModule(),
-                            ):
-                                with patch("downloader.run_backup", return_value=stats):
+                            with patch("downloader.run_backup", return_value=stats):
+                                with patch(
+                                    "downloader.importlib.import_module",
+                                    return_value=_FakeGitModule(),
+                                ):
                                     with patch(
                                         "downloader.build_runtime_compatibility_report",
                                         return_value=compatibility_report,
