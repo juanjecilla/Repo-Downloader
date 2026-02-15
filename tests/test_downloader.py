@@ -445,11 +445,13 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 ]
                 self.assertEqual(1, len(mirror_events))
                 self.assertEqual(1, len(working_events))
+                mirror_path = os.path.normpath(mirror_events[0]["path"])
+                working_path = os.path.normpath(working_events[0]["path"])
                 self.assertTrue(
-                    mirror_events[0]["path"].endswith(f"/{provider_name}/acme/example.git")
+                    mirror_path.endswith(os.path.join(provider_name, "acme", "example.git"))
                 )
                 self.assertTrue(
-                    working_events[0]["path"].endswith(f"/{provider_name}/acme/example")
+                    working_path.endswith(os.path.join(provider_name, "acme", "example"))
                 )
 
     def test_run_backup_filter_parity_across_providers(self):
