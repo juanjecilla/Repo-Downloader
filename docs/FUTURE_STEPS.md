@@ -7,7 +7,7 @@ Use it with `docs/FEATURE_CATALOG.md`.
 - Bitbucket provider works with retries/timeouts.
 - Backup modes `mirror`, `working`, `both` are implemented.
 - Workspace filter, archive toggle, dry-run, and output layout are implemented.
-- GitHub/GitLab providers are stubs.
+- GitHub provider is implemented; GitLab provider remains a stub.
 
 ## Phase 1: Reliability and Operability (P1)
 Goal: make production backup runs predictable and easy to debug.
