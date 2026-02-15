@@ -2,9 +2,6 @@ import importlib.util
 import unittest
 from unittest.mock import Mock, patch
 
-from utils.errors import ProviderNotImplementedError
-
-
 REQUESTS_AVAILABLE = importlib.util.find_spec("requests") is not None
 if REQUESTS_AVAILABLE:
     from data.source.remote_sources import BitbucketSource, GitHubSource, GitLabSource
@@ -15,10 +12,11 @@ else:
 
 
 class _FakeResponse:
-    def __init__(self, status_code, payload, links=None):
+    def __init__(self, status_code, payload, links=None, headers=None):
         self.status_code = status_code
         self._payload = payload
         self.links = links or {}
+        self.headers = headers or {}
 
     def json(self):
         if isinstance(self._payload, Exception):
@@ -161,13 +159,98 @@ class TestGitHubSource(unittest.TestCase):
 
 
 @unittest.skipUnless(REQUESTS_AVAILABLE, "requests is required for provider tests")
-class TestProviderStubs(unittest.TestCase):
+class TestGitLabSource(unittest.TestCase):
+    @patch("data.source.remote_sources.requests.Session")
+    def test_pagination_collects_all_pages(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "tester"}),
+            _FakeResponse(
+                200,
+                [
+                    {
+                        "path_with_namespace": "acme/one",
+                        "ssh_url_to_repo": "git@gitlab.com:acme/one.git",
+                        "http_url_to_repo": "https://gitlab.com/acme/one.git",
+                    }
+                ],
+                headers={"X-Next-Page": "2"},
+            ),
+            _FakeResponse(
+                200,
+                [
+                    {
+                        "path_with_namespace": "acme/two",
+                        "ssh_url_to_repo": "git@gitlab.com:acme/two.git",
+                        "http_url_to_repo": "https://gitlab.com/acme/two.git",
+                    }
+                ],
+                headers={},
+            ),
+        ]
+        session_cls.return_value = session
 
-    def test_gitlab_stub_is_not_implemented(self):
-        provider = GitLabSource("user", "token")
-        self.assertFalse(provider.auth_ok())
-        with self.assertRaises(ProviderNotImplementedError):
-            provider.get_user_info()
+        source = GitLabSource("user", "token")
+        repositories = source.list_repositories()
+
+        self.assertEqual(2, len(repositories))
+        self.assertEqual("acme/one", repositories[0]["full_name"])
+        self.assertTrue(source.auth_ok())
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_workspace_filter_uses_group_endpoint(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "tester"}),
+            _FakeResponse(
+                200,
+                [{"path_with_namespace": "acme/services/api"}],
+                headers={},
+            ),
+        ]
+        session_cls.return_value = session
+
+        source = GitLabSource("user", "token")
+        repositories = source.list_repositories(workspace="acme/services")
+
+        self.assertEqual(1, len(repositories))
+        requested_url = session.get.call_args_list[1].args[0]
+        self.assertIn("/groups/acme%2Fservices/projects", requested_url)
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_get_repository_normalizes_clone_links(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "tester"}),
+            _FakeResponse(
+                200,
+                {
+                    "path_with_namespace": "acme/service",
+                    "ssh_url_to_repo": "git@gitlab.com:acme/service.git",
+                    "http_url_to_repo": "https://gitlab.com/acme/service.git",
+                    "archived": False,
+                },
+            ),
+        ]
+        session_cls.return_value = session
+
+        source = GitLabSource("user", "token")
+        repository = source.get_repository("acme", "service")
+
+        clone_links = repository["links"]["clone"]
+        self.assertEqual("ssh", clone_links[0]["name"])
+        self.assertEqual("git@gitlab.com:acme/service.git", clone_links[0]["href"])
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_auth_failure_sets_error(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [_FakeResponse(401, {"message": "Unauthorized"})]
+        session_cls.return_value = session
+
+        source = GitLabSource("user", "bad-token")
+
+        self.assertFalse(source.auth_ok())
+        self.assertIn("Authentication failed", source.auth_error)
 
 
 if __name__ == "__main__":

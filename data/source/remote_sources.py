@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 import requests
 from requests.adapters import HTTPAdapter
 from requests.auth import HTTPBasicAuth
@@ -273,8 +275,153 @@ class _NotImplementedProvider(RemoteProvider):
         return self._auth_error
 
 
-class GitLabSource(_NotImplementedProvider):
+class GitLabSource(RemoteProvider):
     provider_name = "gitlab"
 
-    def __init__(self, *_args, **_kwargs):
-        super().__init__(self.provider_name)
+    BASE_API_URL = "https://gitlab.com/api/v4/"
+
+    def __init__(self, username, token, timeout=20, retries=3):
+        self._username = username
+        self._token = token
+        self._timeout = timeout
+        self._session = requests.Session()
+        self._session.headers.update(
+            {
+                "PRIVATE-TOKEN": self._token,
+                "Accept": "application/json",
+            }
+        )
+
+        retry = Retry(
+            total=retries,
+            connect=retries,
+            read=retries,
+            status=retries,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods={"GET"},
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self._session.mount("https://", adapter)
+
+        self._current_user = None
+        self._auth_error = None
+        try:
+            self._current_user = self.get_user_info()
+        except (AuthenticationError, RemoteAPIError) as exc:
+            self._auth_error = str(exc)
+
+    def _request(self, url, params=None):
+        try:
+            response = self._session.get(url, params=params, timeout=self._timeout)
+        except requests.RequestException as exc:
+            raise RemoteAPIError(f"Request to '{url}' failed: {exc}") from exc
+
+        if response.status_code in (401, 403):
+            raise AuthenticationError(
+                f"Authentication failed for '{url}' "
+                f"(status {response.status_code})"
+            )
+        if response.status_code >= 400:
+            raise RemoteAPIError(f"Request to '{url}' failed with status {response.status_code}")
+        return response
+
+    def _request_json(self, url, params=None):
+        response = self._request(url, params=params)
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise RemoteAPIError(f"Invalid JSON received from '{url}'") from exc
+
+    def _get_paginated_results(self, url, params=None):
+        values = []
+        page = 1
+        base_params = dict(params or {})
+
+        while True:
+            page_params = dict(base_params)
+            page_params["per_page"] = 100
+            page_params["page"] = page
+            response = self._request(url, params=page_params)
+            try:
+                page_values = response.json()
+            except ValueError as exc:
+                raise RemoteAPIError(f"Invalid JSON received from '{url}'") from exc
+            if not isinstance(page_values, list):
+                raise RemoteAPIError(
+                    f"Paginated endpoint '{url}' returned a non-list payload"
+                )
+
+            values.extend(page_values)
+            next_page = response.headers.get("X-Next-Page")
+            if not next_page:
+                break
+            try:
+                page = int(next_page)
+            except ValueError as exc:
+                raise RemoteAPIError(
+                    f"Invalid pagination header from '{url}': X-Next-Page={next_page!r}"
+                ) from exc
+
+        return values
+
+    def _normalize_repository_payload(self, repository):
+        if "full_name" not in repository:
+            path_with_namespace = repository.get("path_with_namespace")
+            if path_with_namespace:
+                repository["full_name"] = path_with_namespace
+
+        clone_links = []
+        ssh_url = repository.get("ssh_url_to_repo")
+        if ssh_url:
+            clone_links.append({"name": "ssh", "href": ssh_url})
+        https_url = repository.get("http_url_to_repo")
+        if https_url:
+            clone_links.append({"name": "https", "href": https_url})
+
+        links = repository.setdefault("links", {})
+        links["clone"] = clone_links
+        return repository
+
+    def get_user_info(self):
+        return self._request_json(self.BASE_API_URL + "user")
+
+    def list_repositories(self, workspace=None, role="member"):
+        _ = role
+        if workspace:
+            encoded_workspace = quote(workspace, safe="")
+            url = f"{self.BASE_API_URL}groups/{encoded_workspace}/projects"
+            repositories = self._get_paginated_results(
+                url,
+                params={"include_subgroups": "true"},
+            )
+        else:
+            url = self.BASE_API_URL + "projects"
+            repositories = self._get_paginated_results(
+                url,
+                params={"membership": "true", "order_by": "id", "sort": "asc"},
+            )
+
+        return [self._normalize_repository_payload(repo) for repo in repositories]
+
+    def get_repository(self, workspace, name):
+        full_name = quote(f"{workspace}/{name}", safe="")
+        url = f"{self.BASE_API_URL}projects/{full_name}"
+        repository = self._request_json(url)
+        return self._normalize_repository_payload(repository)
+
+    def list_branches(self, full_name):
+        encoded_full_name = quote(full_name, safe="")
+        url = f"{self.BASE_API_URL}projects/{encoded_full_name}/repository/branches"
+        return self._get_paginated_results(url)
+
+    @property
+    def current_user(self):
+        return self._current_user
+
+    def auth_ok(self):
+        return self._current_user is not None and self._auth_error is None
+
+    @property
+    def auth_error(self):
+        return self._auth_error

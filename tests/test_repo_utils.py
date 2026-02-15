@@ -8,11 +8,14 @@ from utils.repo_utils import (
     acquire_run_lock,
     build_backup_paths,
     build_run_lock_path,
+    collect_snapshot_paths,
+    delete_artifact_path,
     extract_workspace_and_name,
     filter_repositories_by_workspace,
     is_archived_repository,
     normalize_repo_patterns,
     parse_repository_entry,
+    plan_retention_deletions,
     release_run_lock,
     repository_matches_filters,
 )
@@ -203,6 +206,67 @@ class TestRepoUtils(unittest.TestCase):  # pylint: disable=too-many-public-metho
             self.assertFalse(lock_info["replaced_stale"])
             self.assertTrue(lock_info["replaced_forced"])
             release_run_lock(lock_info["path"])
+
+    def test_collect_snapshot_paths_returns_matching_archives(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_dir = os.path.join(tmp_dir, "bitbucket", "acme")
+            os.makedirs(workspace_dir, exist_ok=True)
+            expected_zip = os.path.join(workspace_dir, "example-20240101T000000Z.zip")
+            expected_tar = os.path.join(workspace_dir, "example-20240102T000000Z.tar.gz")
+            with open(expected_zip, "w", encoding="utf-8") as file_zip:
+                file_zip.write("zip")
+            with open(expected_tar, "w", encoding="utf-8") as file_tar:
+                file_tar.write("tar")
+            with open(
+                os.path.join(workspace_dir, "other-20240102T000000Z.zip"),
+                "w",
+                encoding="utf-8",
+            ) as other_file:
+                other_file.write("other")
+
+            collected = collect_snapshot_paths(tmp_dir, "bitbucket", "acme", "example")
+
+            self.assertEqual(2, len(collected))
+            self.assertIn(expected_zip, collected)
+            self.assertIn(expected_tar, collected)
+
+    def test_plan_retention_deletions_by_days_and_count(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            first = os.path.join(tmp_dir, "first.txt")
+            second = os.path.join(tmp_dir, "second.txt")
+            third = os.path.join(tmp_dir, "third.txt")
+            for path in (first, second, third):
+                with open(path, "w", encoding="utf-8") as file_handle:
+                    file_handle.write(path)
+
+            os.utime(first, (100, 100))
+            os.utime(second, (200, 200))
+            os.utime(third, (300, 300))
+
+            deletions = plan_retention_deletions(
+                [first, second, third],
+                retain_days=2,
+                retain_count=2,
+                now_timestamp=300 + (2 * 86400),
+            )
+
+            self.assertEqual([second, first], deletions)
+
+    def test_delete_artifact_path_removes_file_and_directory(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = os.path.join(tmp_dir, "snapshot.zip")
+            dir_path = os.path.join(tmp_dir, "working-copy")
+            os.makedirs(dir_path, exist_ok=True)
+            with open(file_path, "w", encoding="utf-8") as file_handle:
+                file_handle.write("snapshot")
+            with open(os.path.join(dir_path, "README.md"), "w", encoding="utf-8") as file_handle:
+                file_handle.write("working")
+
+            delete_artifact_path(file_path)
+            delete_artifact_path(dir_path)
+
+            self.assertFalse(os.path.exists(file_path))
+            self.assertFalse(os.path.exists(dir_path))
 
 
 if __name__ == "__main__":

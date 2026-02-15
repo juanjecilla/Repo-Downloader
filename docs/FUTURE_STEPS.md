@@ -44,6 +44,9 @@ Definition of done:
 
 Progress:
 - `F006` completed.
+- `F007` completed.
+- `F008` completed.
+- `F009` completed.
 
 ## Phase 3: Backup Product Features (P3)
 Goal: improve recovery workflows and storage management.
@@ -56,6 +59,12 @@ Goal: improve recovery workflows and storage management.
 Definition of done:
 - Snapshot + retention + restore flows are documented and tested.
 - Large runs can resume from checkpoint after interruption.
+
+Progress:
+- `F010` completed.
+- `F011` completed.
+- `F012` completed.
+- `F013` completed.
 
 ## Phase 4: UX and Distribution (P4)
 Goal: make tool easy to adopt across environments.

@@ -3,7 +3,7 @@
 Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bitbucket support hardened for repeatable backups.
 
 ## Features
-- Provider-aware CLI (`bitbucket`, `github`, `gitlab`; GitLab remains a stub for future expansion).
+- Provider-aware CLI (`bitbucket`, `github`, `gitlab`).
 - Backup modes:
   - `mirror`: bare mirror repositories for full history/ref backup.
   - `working`: normal working copies with branch checkout.
@@ -16,6 +16,10 @@ Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bi
 - Include/exclude repository filtering with glob patterns (`workspace/repo`).
 - Per-repository retries with failure classification summary (`--repo-retries`).
 - Run lock protection to prevent overlapping runs (`--force-lock` to override).
+- Optional mirror snapshot exports (`--snapshot-format zip|tar.gz` and `--snapshot-dir`).
+- Optional retention policies for snapshots/working artifacts (`--retain-days`, `--retain-count`).
+- Restore helper commands (`list-backups`, `validate-restore`) for inventory and restore drills.
+- Checkpoint-based resumable runs (`--resume`) for interrupted backup recovery.
 
 ## Quick Start
 1. Install dependencies:

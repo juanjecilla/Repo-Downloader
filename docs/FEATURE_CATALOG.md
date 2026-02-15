@@ -109,7 +109,7 @@ Status values:
 
 ### F007 GitLab Provider Implementation
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: implement real GitLab API support with personal/project tokens.
 - Files:
   - `data/source/remote_sources.py`
@@ -124,7 +124,7 @@ Status values:
 
 ### F008 Provider Contract Regression Suite
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: verify every provider satisfies the same contract and behavior.
 - Files:
   - `tests/test_provider_contract.py`
@@ -136,7 +136,7 @@ Status values:
 
 ### F009 Provider Behavior Parity Matrix
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: ensure all providers behave the same for filtering, archive handling, and output paths.
 - Files:
   - `docs/USAGE.md`
@@ -150,7 +150,7 @@ Status values:
 
 ### F010 Snapshot Export from Mirrors
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: export backup snapshots as `zip` or `tar.gz`.
 - Files:
   - `downloader.py`
@@ -163,7 +163,7 @@ Status values:
 
 ### F011 Retention Policies
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: automatic cleanup of old snapshots/working copies by age/count.
 - Files:
   - `downloader.py`
@@ -176,7 +176,7 @@ Status values:
 
 ### F012 Restore Helper Commands
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: provide CLI helpers for restore verification.
 - Files:
   - `downloader.py`
@@ -189,7 +189,7 @@ Status values:
 
 ### F013 Resumable Runs
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: persist run checkpoints and resume after interruption.
 - Files:
   - `downloader.py`

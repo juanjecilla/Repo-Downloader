@@ -1,6 +1,8 @@
 import fnmatch
 import json
 import os
+import shutil
+import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -79,6 +81,166 @@ def build_backup_paths(
         "mirror_path": os.path.join(base_dir, f"{repository_name}.git"),
         "working_path": os.path.join(base_dir, repository_name),
     }
+
+
+def snapshot_timestamp(now: Optional[datetime] = None) -> str:
+    timestamp = now or datetime.now(timezone.utc)
+    return timestamp.strftime("%Y%m%dT%H%M%SZ")
+
+
+def build_snapshot_path(
+    snapshot_dir: str,
+    provider: str,
+    workspace: str,
+    repository_name: str,
+    snapshot_format: str,
+    timestamp: Optional[str] = None,
+) -> str:
+    normalized_timestamp = timestamp or snapshot_timestamp()
+    output_root = os.path.expanduser(snapshot_dir)
+    snapshot_base = os.path.join(
+        output_root,
+        provider,
+        workspace,
+        f"{repository_name}-{normalized_timestamp}",
+    )
+    if snapshot_format == "zip":
+        return f"{snapshot_base}.zip"
+    if snapshot_format == "tar.gz":
+        return f"{snapshot_base}.tar.gz"
+    raise ValueError(f"Unsupported snapshot format: {snapshot_format!r}")
+
+
+def create_snapshot_archive(source_path: str, snapshot_path: str, snapshot_format: str) -> str:
+    snapshot_directory = os.path.dirname(snapshot_path)
+    os.makedirs(snapshot_directory, exist_ok=True)
+    source_parent = os.path.dirname(source_path)
+    source_name = os.path.basename(source_path)
+
+    if snapshot_format == "zip":
+        archive_base = snapshot_path[: -len(".zip")]
+        created_path = shutil.make_archive(
+            base_name=archive_base,
+            format="zip",
+            root_dir=source_parent,
+            base_dir=source_name,
+        )
+        return created_path
+
+    if snapshot_format == "tar.gz":
+        archive_base = snapshot_path[: -len(".tar.gz")]
+        created_path = shutil.make_archive(
+            base_name=archive_base,
+            format="gztar",
+            root_dir=source_parent,
+            base_dir=source_name,
+        )
+        return created_path
+
+    raise ValueError(f"Unsupported snapshot format: {snapshot_format!r}")
+
+
+def collect_snapshot_paths(
+    snapshot_dir: str,
+    provider: str,
+    workspace: str,
+    repository_name: str,
+) -> List[str]:
+    snapshot_root = os.path.expanduser(snapshot_dir)
+    workspace_dir = os.path.join(snapshot_root, provider, workspace)
+    if not os.path.isdir(workspace_dir):
+        return []
+
+    snapshot_paths = []
+    prefix = f"{repository_name}-"
+    for entry in os.listdir(workspace_dir):
+        if not entry.startswith(prefix):
+            continue
+        if not (entry.endswith(".zip") or entry.endswith(".tar.gz")):
+            continue
+        full_path = os.path.join(workspace_dir, entry)
+        if os.path.isfile(full_path):
+            snapshot_paths.append(full_path)
+    return snapshot_paths
+
+
+def plan_retention_deletions(
+    paths: List[str],
+    retain_days: Optional[int] = None,
+    retain_count: Optional[int] = None,
+    now_timestamp: Optional[float] = None,
+) -> List[str]:
+    if retain_days is None and retain_count is None:
+        return []
+
+    normalized = []
+    for path in paths:
+        try:
+            modified_at = os.path.getmtime(path)
+        except OSError:
+            continue
+        normalized.append((path, modified_at))
+
+    normalized.sort(key=lambda item: item[1], reverse=True)
+    deletions = set()
+
+    if retain_days is not None:
+        reference = now_timestamp if now_timestamp is not None else time.time()
+        cutoff = reference - (retain_days * 86400)
+        for path, modified_at in normalized:
+            if modified_at < cutoff:
+                deletions.add(path)
+
+    if retain_count is not None:
+        for index, (path, _modified_at) in enumerate(normalized):
+            if index >= retain_count:
+                deletions.add(path)
+
+    return [path for path, _modified_at in normalized if path in deletions]
+
+
+def delete_artifact_path(path: str) -> None:
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+        return
+    os.remove(path)
+
+
+def build_checkpoint_path(output_dir: str, provider: str) -> str:
+    output_root = os.path.expanduser(output_dir)
+    return os.path.join(output_root, provider, ".repo-downloader-checkpoint.json")
+
+
+def load_checkpoint(checkpoint_path: str) -> Dict:
+    if not os.path.isfile(checkpoint_path):
+        return {}
+
+    try:
+        with open(checkpoint_path, "r", encoding="utf-8") as checkpoint_file:
+            payload = json.load(checkpoint_file)
+            if isinstance(payload, dict):
+                return payload
+    except (OSError, ValueError, TypeError):
+        return {}
+    return {}
+
+
+def save_checkpoint(checkpoint_path: str, payload: Dict) -> None:
+    checkpoint_dir = os.path.dirname(checkpoint_path)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    temp_path = f"{checkpoint_path}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as checkpoint_file:
+        json.dump(payload, checkpoint_file, sort_keys=True)
+        checkpoint_file.write("\n")
+    os.replace(temp_path, checkpoint_path)
+
+
+def remove_checkpoint(checkpoint_path: str) -> None:
+    try:
+        os.remove(checkpoint_path)
+    except FileNotFoundError:
+        return
 
 
 def normalize_repo_patterns(raw_patterns: Optional[List[str]]) -> List[str]:
