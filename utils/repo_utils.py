@@ -1,6 +1,7 @@
 import fnmatch
 import json
 import os
+import shutil
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -79,6 +80,63 @@ def build_backup_paths(
         "mirror_path": os.path.join(base_dir, f"{repository_name}.git"),
         "working_path": os.path.join(base_dir, repository_name),
     }
+
+
+def snapshot_timestamp(now: Optional[datetime] = None) -> str:
+    timestamp = now or datetime.now(timezone.utc)
+    return timestamp.strftime("%Y%m%dT%H%M%SZ")
+
+
+def build_snapshot_path(
+    snapshot_dir: str,
+    provider: str,
+    workspace: str,
+    repository_name: str,
+    snapshot_format: str,
+    timestamp: Optional[str] = None,
+) -> str:
+    normalized_timestamp = timestamp or snapshot_timestamp()
+    output_root = os.path.expanduser(snapshot_dir)
+    snapshot_base = os.path.join(
+        output_root,
+        provider,
+        workspace,
+        f"{repository_name}-{normalized_timestamp}",
+    )
+    if snapshot_format == "zip":
+        return f"{snapshot_base}.zip"
+    if snapshot_format == "tar.gz":
+        return f"{snapshot_base}.tar.gz"
+    raise ValueError(f"Unsupported snapshot format: {snapshot_format!r}")
+
+
+def create_snapshot_archive(source_path: str, snapshot_path: str, snapshot_format: str) -> str:
+    snapshot_directory = os.path.dirname(snapshot_path)
+    os.makedirs(snapshot_directory, exist_ok=True)
+    source_parent = os.path.dirname(source_path)
+    source_name = os.path.basename(source_path)
+
+    if snapshot_format == "zip":
+        archive_base = snapshot_path[: -len(".zip")]
+        created_path = shutil.make_archive(
+            base_name=archive_base,
+            format="zip",
+            root_dir=source_parent,
+            base_dir=source_name,
+        )
+        return created_path
+
+    if snapshot_format == "tar.gz":
+        archive_base = snapshot_path[: -len(".tar.gz")]
+        created_path = shutil.make_archive(
+            base_name=archive_base,
+            format="gztar",
+            root_dir=source_parent,
+            base_dir=source_name,
+        )
+        return created_path
+
+    raise ValueError(f"Unsupported snapshot format: {snapshot_format!r}")
 
 
 def normalize_repo_patterns(raw_patterns: Optional[List[str]]) -> List[str]:

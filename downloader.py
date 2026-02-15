@@ -22,6 +22,8 @@ from utils.log_utils import NullLogger, RunLogger
 from utils.repo_utils import (
     acquire_run_lock,
     build_backup_paths,
+    build_snapshot_path,
+    create_snapshot_archive,
     is_archived_repository,
     normalize_repo_patterns,
     parse_repository_entry,
@@ -62,6 +64,18 @@ def build_parser():
         type=str,
         default="./backups",
         help="Root directory where backups are stored.",
+    )
+    parser.add_argument(
+        "--snapshot-format",
+        choices=("zip", "tar.gz"),
+        default=None,
+        help="Optional snapshot archive format to export mirror backups.",
+    )
+    parser.add_argument(
+        "--snapshot-dir",
+        type=str,
+        default="./snapshots",
+        help="Root directory where snapshot archives are stored.",
     )
     parser.add_argument(
         "--include-archived",
@@ -381,6 +395,65 @@ def sync_mirror(git_source, clone_url, mirror_path, dry_run, logger, provider_na
         )
 
 
+def snapshot_mirror_if_enabled(
+    mirror_path,
+    dry_run,
+    logger,
+    provider_name,
+    workspace,
+    repository_name,
+    full_name,
+    snapshot_format=None,
+    snapshot_dir="./snapshots",
+):
+    if not snapshot_format:
+        return None
+
+    snapshot_path = build_snapshot_path(
+        snapshot_dir=snapshot_dir,
+        provider=provider_name,
+        workspace=workspace,
+        repository_name=repository_name,
+        snapshot_format=snapshot_format,
+    )
+    if dry_run:
+        emit_text(logger, f"\t[DRY-RUN] Would create snapshot: {snapshot_path}")
+        logger.event(
+            "snapshot.create",
+            outcome="planned",
+            provider=provider_name,
+            repository=full_name,
+            mode="mirror",
+            format=snapshot_format,
+            source_path=mirror_path,
+            path=snapshot_path,
+        )
+        return snapshot_path
+
+    started_at = time.monotonic()
+    try:
+        created_path = create_snapshot_archive(mirror_path, snapshot_path, snapshot_format)
+    except (OSError, ValueError) as exc:
+        raise RepositorySyncError(
+            f"Failed creating snapshot for repository '{full_name}': {exc}"
+        ) from exc
+
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+    emit_text(logger, f"\tSnapshot created: {created_path}")
+    logger.event(
+        "snapshot.create",
+        outcome="success",
+        provider=provider_name,
+        repository=full_name,
+        mode="mirror",
+        format=snapshot_format,
+        source_path=mirror_path,
+        path=created_path,
+        duration_ms=duration_ms,
+    )
+    return created_path
+
+
 def sync_working(
     git_source,
     provider,
@@ -612,6 +685,8 @@ def sync_repository(
     if not args.dry_run:
         os.makedirs(paths["base_dir"], exist_ok=True)
     default_branch_name = get_default_branch_name(extended_repo)
+    snapshot_format = getattr(args, "snapshot_format", None)
+    snapshot_dir = getattr(args, "snapshot_dir", "./snapshots")
 
     for mode in selected_modes(args.mode):
         if mode == "mirror":
@@ -623,6 +698,17 @@ def sync_repository(
                 logger,
                 args.provider,
                 full_name,
+            )
+            snapshot_mirror_if_enabled(
+                mirror_path=paths["mirror_path"],
+                dry_run=args.dry_run,
+                logger=logger,
+                provider_name=args.provider,
+                workspace=repo_workspace,
+                repository_name=repo_name,
+                full_name=full_name,
+                snapshot_format=snapshot_format,
+                snapshot_dir=snapshot_dir,
             )
         elif mode == "working":
             sync_working(
@@ -763,6 +849,8 @@ def main(argv=None):
         mode=args.mode,
         workspace=args.workspace,
         output_dir=os.path.expanduser(args.output_dir),
+        snapshot_format=args.snapshot_format,
+        snapshot_dir=os.path.expanduser(args.snapshot_dir),
         dry_run=args.dry_run,
         include_archived=args.include_archived,
         ssh_key_path=args.ssh_key_path,

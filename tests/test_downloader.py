@@ -98,6 +98,10 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "mirror",
                 "--output-dir",
                 "./backups",
+                "--snapshot-format",
+                "zip",
+                "--snapshot-dir",
+                "./snapshots",
                 "--role",
                 "member",
                 "--log-format",
@@ -121,6 +125,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual("bitbucket", args.provider)
         self.assertEqual("mirror", args.mode)
         self.assertEqual("./backups", args.output_dir)
+        self.assertEqual("zip", args.snapshot_format)
+        self.assertEqual("./snapshots", args.snapshot_dir)
         self.assertEqual("json", args.log_format)
         self.assertEqual("./logs/run.log", args.log_file)
         self.assertEqual(["acme/*"], args.include)
@@ -382,6 +388,68 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 self.assertEqual(2, stats["processed"])
                 self.assertEqual(1, stats["succeeded"])
                 self.assertEqual(1, stats["skipped"])
+
+    def test_run_backup_dry_run_plans_snapshot_export(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="mirror",
+            dry_run=True,
+            include=[],
+            exclude=[],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
+            repo_retries=0,
+            snapshot_format="zip",
+            snapshot_dir="./snapshots-test",
+        )
+        provider = _FakeProvider()
+        git_source = _FakeGitSource()
+        logger = _MemoryLogger()
+
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(1, stats["processed"])
+        snapshot_events = [event for event in logger.events if event["action"] == "snapshot.create"]
+        self.assertEqual(1, len(snapshot_events))
+        self.assertEqual("planned", snapshot_events[0]["outcome"])
+        self.assertTrue(snapshot_events[0]["path"].endswith(".zip"))
+
+    def test_run_backup_creates_snapshot_after_mirror_sync(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="mirror",
+            dry_run=False,
+            include=[],
+            exclude=[],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
+            repo_retries=0,
+            snapshot_format="tar.gz",
+            snapshot_dir="./snapshots-test",
+        )
+        provider = _FakeProvider()
+        git_source = _FakeGitSource()
+        logger = _MemoryLogger()
+
+        with patch(
+            "downloader.create_snapshot_archive",
+            return_value="./snapshots-test/bitbucket/acme/example.tar.gz",
+        ) as mock_snapshot:
+            stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(1, stats["processed"])
+        self.assertEqual(1, stats["succeeded"])
+        self.assertEqual(1, mock_snapshot.call_count)
 
     def test_json_logger_outputs_parseable_events_with_required_fields(self):
         buffer = io.StringIO()

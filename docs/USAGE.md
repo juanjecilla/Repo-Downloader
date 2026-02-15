@@ -40,6 +40,8 @@ python3 downloader.py [options]
 - `--mode`: Backup mode (`mirror`, `working`, `both`), default `both`.
 - `-w, --workspace`: Optional workspace filter.
 - `--output-dir`: Backup root directory, default `./backups`.
+- `--snapshot-format`: Optional mirror snapshot export format (`zip`, `tar.gz`).
+- `--snapshot-dir`: Snapshot archive root directory, default `./snapshots`.
 - `--include-archived`: Include archived repositories.
 - `--dry-run`: Show actions without cloning/fetching/checking out.
 - `--ssh-key-path`: SSH private key path, default `~/.ssh/id_rsa`.
@@ -199,6 +201,22 @@ Retry semantics:
 - The command attempts each repository once, plus `--repo-retries` additional attempts.
 - Failure classification counters are included in the run summary (`api`, `auth`, `clone`,
   `fetch`, `checkout`, `other`).
+
+### Export mirror snapshots
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode mirror \
+  --snapshot-format tar.gz \
+  --snapshot-dir ./snapshots
+```
+
+Snapshot semantics:
+- Snapshots are exported after mirror sync completes for each repository.
+- Snapshot path format:
+  - `./snapshots/<provider>/<workspace>/<repo>-<timestamp>.<zip|tar.gz>`
 
 ### Run locking
 Each run acquires a lock file under the output root:

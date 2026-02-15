@@ -60,6 +60,9 @@ Definition of done:
 - Snapshot + retention + restore flows are documented and tested.
 - Large runs can resume from checkpoint after interruption.
 
+Progress:
+- `F010` completed.
+
 ## Phase 4: UX and Distribution (P4)
 Goal: make tool easy to adopt across environments.
 

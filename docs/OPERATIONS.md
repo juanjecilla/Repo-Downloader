@@ -93,6 +93,17 @@ python3 downloader.py \
   --force-lock
 ```
 
+### Profile: Mirror snapshots for offline transfer
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode mirror \
+  --snapshot-format tar.gz \
+  --snapshot-dir ./snapshots
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
@@ -148,6 +159,7 @@ Run this periodically to verify backups:
 ## Operational Safety
 - Use `--dry-run` before first production run.
 - Keep backup root on durable storage.
+- Keep snapshot root on durable storage when snapshot export is enabled.
 - Avoid deleting existing backup paths outside planned retention procedures.
 - Preserve mirrors as source-of-truth backup artifacts.
 - Never run two jobs against the same provider/output root concurrently.

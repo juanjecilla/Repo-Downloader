@@ -150,7 +150,7 @@ Status values:
 
 ### F010 Snapshot Export from Mirrors
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: export backup snapshots as `zip` or `tar.gz`.
 - Files:
   - `downloader.py`
