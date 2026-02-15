@@ -39,7 +39,8 @@ jobs:
       - name: Validate compatibility baseline
         run: python -c "from utils.compatibility import build_runtime_compatibility_report; report = build_runtime_compatibility_report(); assert report['python_supported'], report; assert report['git_supported'], report; print(report)"
       - name: Run unit tests
-        run: python -m unittest discover -s tests -p "test_*.py" 2>&1
+        shell: bash
+        run: python -m unittest discover -s tests -p "test_*.py"
       - name: CLI smoke test
         run: python downloader.py --help
 
