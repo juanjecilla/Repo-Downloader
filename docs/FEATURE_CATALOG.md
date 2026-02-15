@@ -124,7 +124,7 @@ Status values:
 
 ### F008 Provider Contract Regression Suite
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: verify every provider satisfies the same contract and behavior.
 - Files:
   - `tests/test_provider_contract.py`
