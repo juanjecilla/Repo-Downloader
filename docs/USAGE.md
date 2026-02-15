@@ -24,6 +24,12 @@ After installation, run with:
 repo-downloader [command] [options]
 ```
 
+Build and run with Docker:
+```bash
+docker build -t repo-downloader:local .
+docker run --rm repo-downloader:local --help
+```
+
 ## Authentication
 Repo-Downloader uses a token/app-password value for API authentication.
 
@@ -314,6 +320,25 @@ exclude = ["acme/private-*"]
 Config precedence:
 - CLI flags override config file values.
 - Config values are used only when the matching CLI option remains at its default value.
+
+### Run backup from Docker with mounted SSH key/output
+```bash
+docker run --rm \
+  -v "$HOME/.ssh:/root/.ssh:ro" \
+  -v "$PWD/backups:/data/backups" \
+  -e BITBUCKET_APP_PASSWORD \
+  repo-downloader:local backup \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode mirror \
+  --output-dir /data/backups
+```
+
+Container notes:
+- Mount SSH keys read-only and ensure permissions are compatible with SSH client expectations.
+- Mount backup/output directories as writable volumes.
+- Pass tokens using environment variables (`-e ...`) and `--token-env`.
 
 ### Run locking
 Each run acquires a lock file under the output root:
