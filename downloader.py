@@ -23,10 +23,13 @@ from utils.repo_utils import (
     acquire_run_lock,
     build_backup_paths,
     build_snapshot_path,
+    collect_snapshot_paths,
     create_snapshot_archive,
+    delete_artifact_path,
     is_archived_repository,
     normalize_repo_patterns,
     parse_repository_entry,
+    plan_retention_deletions,
     release_run_lock,
     repository_matches_filters,
 )
@@ -76,6 +79,18 @@ def build_parser():
         type=str,
         default="./snapshots",
         help="Root directory where snapshot archives are stored.",
+    )
+    parser.add_argument(
+        "--retain-days",
+        type=int,
+        default=None,
+        help="Delete snapshot/working artifacts older than this many days.",
+    )
+    parser.add_argument(
+        "--retain-count",
+        type=int,
+        default=None,
+        help="Keep only the most recent N snapshot/working artifacts per repository.",
     )
     parser.add_argument(
         "--include-archived",
@@ -454,6 +469,73 @@ def snapshot_mirror_if_enabled(
     return created_path
 
 
+def apply_retention_if_enabled(
+    logger,
+    provider_name,
+    workspace,
+    repository_name,
+    full_name,
+    working_path,
+    snapshot_dir,
+    retain_days=None,
+    retain_count=None,
+    dry_run=False,
+):
+    if retain_days is None and retain_count is None:
+        return
+
+    snapshot_paths = collect_snapshot_paths(
+        snapshot_dir=snapshot_dir,
+        provider=provider_name,
+        workspace=workspace,
+        repository_name=repository_name,
+    )
+    working_paths = [working_path] if os.path.exists(working_path) else []
+
+    for artifact_type, candidate_paths in (
+        ("snapshot", snapshot_paths),
+        ("working", working_paths),
+    ):
+        deletion_paths = plan_retention_deletions(
+            candidate_paths,
+            retain_days=retain_days,
+            retain_count=retain_count,
+        )
+        for artifact_path in deletion_paths:
+            if dry_run:
+                emit_text(logger, f"\t[DRY-RUN] Would delete {artifact_type}: {artifact_path}")
+                logger.event(
+                    "retention.delete",
+                    outcome="planned",
+                    provider=provider_name,
+                    repository=full_name,
+                    artifact_type=artifact_type,
+                    path=artifact_path,
+                    retain_days=retain_days,
+                    retain_count=retain_count,
+                )
+                continue
+
+            try:
+                delete_artifact_path(artifact_path)
+            except OSError as exc:
+                raise RepositorySyncError(
+                    f"Failed deleting retained {artifact_type} artifact '{artifact_path}': {exc}"
+                ) from exc
+
+            emit_text(logger, f"\tDeleted {artifact_type} artifact: {artifact_path}")
+            logger.event(
+                "retention.delete",
+                outcome="success",
+                provider=provider_name,
+                repository=full_name,
+                artifact_type=artifact_type,
+                path=artifact_path,
+                retain_days=retain_days,
+                retain_count=retain_count,
+            )
+
+
 def sync_working(
     git_source,
     provider,
@@ -687,6 +769,8 @@ def sync_repository(
     default_branch_name = get_default_branch_name(extended_repo)
     snapshot_format = getattr(args, "snapshot_format", None)
     snapshot_dir = getattr(args, "snapshot_dir", "./snapshots")
+    retain_days = getattr(args, "retain_days", None)
+    retain_count = getattr(args, "retain_count", None)
 
     for mode in selected_modes(args.mode):
         if mode == "mirror":
@@ -725,6 +809,19 @@ def sync_repository(
                 args.default_branch_only,
                 default_branch_name,
             )
+
+    apply_retention_if_enabled(
+        logger=logger,
+        provider_name=args.provider,
+        workspace=repo_workspace,
+        repository_name=repo_name,
+        full_name=full_name,
+        working_path=paths["working_path"],
+        snapshot_dir=snapshot_dir,
+        retain_days=retain_days,
+        retain_count=retain_count,
+        dry_run=args.dry_run,
+    )
 
     emit_text(logger, f"Finishing {repo_name} repository")
     logger.event(
@@ -836,6 +933,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.repo_retries < 0:
         parser.error("--repo-retries must be zero or a positive integer.")
+    if args.retain_days is not None and args.retain_days < 0:
+        parser.error("--retain-days must be zero or a positive integer.")
+    if args.retain_count is not None and args.retain_count < 0:
+        parser.error("--retain-count must be zero or a positive integer.")
     args.include = normalize_repo_patterns(args.include)
     args.exclude = normalize_repo_patterns(args.exclude)
     args.branch_names = normalize_cli_list(args.branch)
@@ -861,6 +962,8 @@ def main(argv=None):
         branch_patterns=args.branch_patterns,
         default_branch_only=args.default_branch_only,
         repo_retries=args.repo_retries,
+        retain_days=args.retain_days,
+        retain_count=args.retain_count,
         force_lock=args.force_lock,
         log_format=args.log_format,
     )

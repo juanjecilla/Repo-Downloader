@@ -56,6 +56,8 @@ python3 downloader.py [options]
 - `--default-branch-only`: In working mode, checkout only the repository default branch.
 - `--repo-retries`: Additional retries per repository after a failure, default `0`.
 - `--force-lock`: Replace an active/stale run lock for the selected provider/output root.
+- `--retain-days`: Delete snapshot/working artifacts older than this many days.
+- `--retain-count`: Keep only the most recent N snapshot/working artifacts per repository.
 
 ## Provider Behavior Matrix
 | Capability | Bitbucket | GitHub | GitLab | Notes |
@@ -217,6 +219,24 @@ Snapshot semantics:
 - Snapshots are exported after mirror sync completes for each repository.
 - Snapshot path format:
   - `./snapshots/<provider>/<workspace>/<repo>-<timestamp>.<zip|tar.gz>`
+
+### Apply retention policy
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode mirror \
+  --snapshot-format zip \
+  --snapshot-dir ./snapshots \
+  --retain-days 30 \
+  --retain-count 20
+```
+
+Retention semantics:
+- `--retain-days` deletes artifacts older than the given number of days.
+- `--retain-count` keeps only the newest N artifacts for the repository.
+- Use `--dry-run` to review planned deletions before applying them.
 
 ### Run locking
 Each run acquires a lock file under the output root:

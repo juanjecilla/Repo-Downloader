@@ -163,7 +163,7 @@ Status values:
 
 ### F011 Retention Policies
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: automatic cleanup of old snapshots/working copies by age/count.
 - Files:
   - `downloader.py`

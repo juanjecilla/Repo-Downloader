@@ -1,6 +1,8 @@
 import argparse
 import io
 import json
+import os
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
@@ -102,6 +104,10 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "zip",
                 "--snapshot-dir",
                 "./snapshots",
+                "--retain-days",
+                "30",
+                "--retain-count",
+                "10",
                 "--role",
                 "member",
                 "--log-format",
@@ -127,6 +133,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual("./backups", args.output_dir)
         self.assertEqual("zip", args.snapshot_format)
         self.assertEqual("./snapshots", args.snapshot_dir)
+        self.assertEqual(30, args.retain_days)
+        self.assertEqual(10, args.retain_count)
         self.assertEqual("json", args.log_format)
         self.assertEqual("./logs/run.log", args.log_file)
         self.assertEqual(["acme/*"], args.include)
@@ -450,6 +458,48 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(1, stats["processed"])
         self.assertEqual(1, stats["succeeded"])
         self.assertEqual(1, mock_snapshot.call_count)
+
+    def test_run_backup_dry_run_reports_retention_deletion(self):
+        with tempfile.TemporaryDirectory() as snapshot_dir:
+            workspace_dir = os.path.join(snapshot_dir, "bitbucket", "acme")
+            os.makedirs(workspace_dir, exist_ok=True)
+            snapshot_path = os.path.join(workspace_dir, "example-20200101T000000Z.zip")
+            with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
+                snapshot_file.write("old snapshot")
+            os.utime(snapshot_path, (1, 1))
+
+            args = SimpleNamespace(
+                workspace=None,
+                role="member",
+                include_archived=False,
+                output_dir="./backups-test",
+                provider="bitbucket",
+                mode="mirror",
+                dry_run=True,
+                include=[],
+                exclude=[],
+                branch_names=[],
+                branch_patterns=[],
+                default_branch_only=False,
+                repo_retries=0,
+                snapshot_format=None,
+                snapshot_dir=snapshot_dir,
+                retain_days=1,
+                retain_count=None,
+            )
+            provider = _FakeProvider()
+            git_source = _FakeGitSource()
+            logger = _MemoryLogger()
+
+            stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(1, stats["processed"])
+        retention_events = [
+            event for event in logger.events if event["action"] == "retention.delete"
+        ]
+        self.assertEqual(1, len(retention_events))
+        self.assertEqual("planned", retention_events[0]["outcome"])
+        self.assertEqual("snapshot", retention_events[0]["artifact_type"])
 
     def test_json_logger_outputs_parseable_events_with_required_fields(self):
         buffer = io.StringIO()

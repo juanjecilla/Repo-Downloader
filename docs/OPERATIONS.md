@@ -104,6 +104,19 @@ python3 downloader.py \
   --snapshot-dir ./snapshots
 ```
 
+### Profile: Retention cleanup for snapshots/working copies
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --snapshot-format zip \
+  --snapshot-dir ./snapshots \
+  --retain-days 30 \
+  --retain-count 20
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
@@ -160,6 +173,7 @@ Run this periodically to verify backups:
 - Use `--dry-run` before first production run.
 - Keep backup root on durable storage.
 - Keep snapshot root on durable storage when snapshot export is enabled.
+- Run retention first with `--dry-run` to verify planned deletions.
 - Avoid deleting existing backup paths outside planned retention procedures.
 - Preserve mirrors as source-of-truth backup artifacts.
 - Never run two jobs against the same provider/output root concurrently.
