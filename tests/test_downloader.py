@@ -1098,12 +1098,12 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                         ):
                             with patch("downloader.run_backup", return_value=stats):
                                 with patch(
-                                    "downloader.importlib.import_module",
-                                    return_value=_FakeGitModule(),
+                                    "downloader.build_runtime_compatibility_report",
+                                    return_value=compatibility_report,
                                 ):
                                     with patch(
-                                        "downloader.build_runtime_compatibility_report",
-                                        return_value=compatibility_report,
+                                        "downloader.importlib.import_module",
+                                        return_value=_FakeGitModule(),
                                     ):
                                         exit_code = downloader.main(
                                             [
