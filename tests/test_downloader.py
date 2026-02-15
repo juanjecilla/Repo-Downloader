@@ -126,6 +126,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "--repo-retries",
                 "2",
                 "--force-lock",
+                "--resume",
             ]
         )
         self.assertEqual("bitbucket", args.provider)
@@ -145,6 +146,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertTrue(args.default_branch_only)
         self.assertEqual(2, args.repo_retries)
         self.assertTrue(args.force_lock)
+        self.assertTrue(args.resume)
 
     def test_parser_accepts_restore_commands(self):
         parser = downloader.build_parser()
@@ -519,6 +521,108 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(1, len(retention_events))
         self.assertEqual("planned", retention_events[0]["outcome"])
         self.assertEqual("snapshot", retention_events[0]["artifact_type"])
+
+    def test_run_backup_resume_skips_completed_repositories(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            checkpoint_dir = os.path.join(output_dir, "bitbucket")
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            checkpoint_path = os.path.join(checkpoint_dir, ".repo-downloader-checkpoint.json")
+            with open(checkpoint_path, "w", encoding="utf-8") as checkpoint_file:
+                json.dump(
+                    {
+                        "signature": {
+                            "provider": "bitbucket",
+                            "mode": "mirror",
+                            "workspace": None,
+                            "include": [],
+                            "exclude": [],
+                        },
+                        "completed": ["acme/one"],
+                    },
+                    checkpoint_file,
+                )
+
+            args = SimpleNamespace(
+                workspace=None,
+                role="member",
+                include_archived=False,
+                output_dir=output_dir,
+                provider="bitbucket",
+                mode="mirror",
+                dry_run=False,
+                include=[],
+                exclude=[],
+                branch_names=[],
+                branch_patterns=[],
+                default_branch_only=False,
+                repo_retries=0,
+                snapshot_format=None,
+                snapshot_dir="./snapshots-test",
+                retain_days=None,
+                retain_count=None,
+                resume=True,
+            )
+            provider = _FakeProvider(
+                repositories=[
+                    {"repository": {"full_name": "acme/one"}},
+                    {"repository": {"full_name": "acme/two"}},
+                ]
+            )
+            git_source = _FakeGitSource()
+            logger = _MemoryLogger()
+
+            stats = downloader.run_backup(args, provider, git_source, logger=logger)
+            checkpoint_exists_after = os.path.exists(checkpoint_path)
+
+        self.assertEqual(2, stats["processed"])
+        self.assertEqual(1, stats["skipped"])
+        self.assertEqual(1, stats["succeeded"])
+        self.assertEqual(1, len([call for call in git_source.calls if call[0] == "clone_repo"]))
+        self.assertFalse(checkpoint_exists_after)
+
+    def test_run_backup_resume_keeps_checkpoint_on_failure(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            args = SimpleNamespace(
+                workspace=None,
+                role="member",
+                include_archived=False,
+                output_dir=output_dir,
+                provider="bitbucket",
+                mode="mirror",
+                dry_run=False,
+                include=[],
+                exclude=[],
+                branch_names=[],
+                branch_patterns=[],
+                default_branch_only=False,
+                repo_retries=0,
+                snapshot_format=None,
+                snapshot_dir="./snapshots-test",
+                retain_days=None,
+                retain_count=None,
+                resume=True,
+            )
+
+            class _FailingProvider(_FakeProvider):
+                def get_repository(self, workspace, name):
+                    _ = workspace
+                    _ = name
+                    raise AuthenticationError("token expired")
+
+            provider = _FailingProvider()
+            git_source = _FakeGitSource()
+            logger = _MemoryLogger()
+
+            stats = downloader.run_backup(args, provider, git_source, logger=logger)
+            checkpoint_path = os.path.join(
+                output_dir,
+                "bitbucket",
+                ".repo-downloader-checkpoint.json",
+            )
+            checkpoint_exists_after = os.path.exists(checkpoint_path)
+
+        self.assertEqual(1, stats["failed"])
+        self.assertTrue(checkpoint_exists_after)
 
     def test_json_logger_outputs_parseable_events_with_required_fields(self):
         buffer = io.StringIO()

@@ -23,16 +23,20 @@ from utils.log_utils import NullLogger, RunLogger
 from utils.repo_utils import (
     acquire_run_lock,
     build_backup_paths,
+    build_checkpoint_path,
     build_snapshot_path,
     collect_snapshot_paths,
     create_snapshot_archive,
     delete_artifact_path,
     is_archived_repository,
+    load_checkpoint,
     normalize_repo_patterns,
     parse_repository_entry,
     plan_retention_deletions,
+    remove_checkpoint,
     release_run_lock,
     repository_matches_filters,
+    save_checkpoint,
 )
 
 PROVIDER_CLASS_PATHS = {
@@ -191,6 +195,11 @@ def build_parser():
         "--force-lock",
         action="store_true",
         help="Replace an existing active run lock for the selected provider/output root.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume backup using checkpoint state from a previous interrupted run.",
     )
     parser.add_argument(
         "--backup-path",
@@ -877,9 +886,75 @@ def run_backup(args, provider, git_source, logger=None):
         "failed": 0,
         "failure_types": make_failure_counters(),
     }
+    resume_enabled = bool(getattr(args, "resume", False)) and not args.dry_run
+    checkpoint_path = None
+    checkpoint_payload = None
+    completed_repositories = set()
+    if resume_enabled:
+        checkpoint_signature = {
+            "provider": args.provider,
+            "mode": args.mode,
+            "workspace": args.workspace,
+            "include": args.include,
+            "exclude": args.exclude,
+        }
+        checkpoint_path = build_checkpoint_path(args.output_dir, args.provider)
+        checkpoint_payload = load_checkpoint(checkpoint_path)
+        if checkpoint_payload.get("signature") == checkpoint_signature:
+            completed_repositories = set(checkpoint_payload.get("completed", []))
+            logger.event(
+                "checkpoint.load",
+                outcome="success",
+                provider=args.provider,
+                mode=args.mode,
+                checkpoint_path=checkpoint_path,
+                completed_count=len(completed_repositories),
+            )
+        else:
+            completed_repositories = set()
+            checkpoint_payload = {
+                "signature": checkpoint_signature,
+                "completed": [],
+            }
+            try:
+                save_checkpoint(checkpoint_path, checkpoint_payload)
+            except OSError as exc:
+                raise RemoteAPIError(
+                    f"Failed writing checkpoint state to '{checkpoint_path}': {exc}"
+                ) from exc
+            logger.event(
+                "checkpoint.reset",
+                outcome="success",
+                provider=args.provider,
+                mode=args.mode,
+                checkpoint_path=checkpoint_path,
+                reason="signature_mismatch_or_missing",
+            )
 
     for index, repository_entry in enumerate(repositories):
         stats["processed"] += 1
+        if resume_enabled:
+            try:
+                parsed_for_checkpoint = parse_repository_entry(repository_entry)
+                checkpoint_repository = parsed_for_checkpoint["full_name"]
+            except (KeyError, TypeError, ValueError):
+                checkpoint_repository = None
+            if checkpoint_repository and checkpoint_repository in completed_repositories:
+                emit_text(
+                    logger,
+                    f"\tSkipping repository from checkpoint: {checkpoint_repository}.",
+                )
+                logger.event(
+                    "repository.skip",
+                    outcome="skipped",
+                    provider=args.provider,
+                    repository=checkpoint_repository,
+                    mode=args.mode,
+                    reason="checkpoint_completed",
+                )
+                stats["skipped"] += 1
+                continue
+
         repository_for_log = "unknown"
         max_attempts = max(1, args.repo_retries + 1)
         for attempt in range(1, max_attempts + 1):
@@ -897,6 +972,15 @@ def run_backup(args, provider, git_source, logger=None):
                     stats["skipped"] += 1
                 else:
                     stats["succeeded"] += 1
+                    if resume_enabled and repository_for_log:
+                        completed_repositories.add(repository_for_log)
+                        checkpoint_payload["completed"] = sorted(completed_repositories)
+                        try:
+                            save_checkpoint(checkpoint_path, checkpoint_payload)
+                        except OSError as exc:
+                            raise RemoteAPIError(
+                                f"Failed writing checkpoint state to '{checkpoint_path}': {exc}"
+                            ) from exc
                 break
             except (
                 KeyError,
@@ -944,6 +1028,21 @@ def run_backup(args, provider, git_source, logger=None):
                 stats["failed"] += 1
                 stats["failure_types"][failure_type] += 1
                 break
+
+    if resume_enabled and stats["failed"] == 0:
+        try:
+            remove_checkpoint(checkpoint_path)
+        except OSError as exc:
+            raise RemoteAPIError(
+                f"Failed removing checkpoint state '{checkpoint_path}': {exc}"
+            ) from exc
+        logger.event(
+            "checkpoint.clear",
+            outcome="success",
+            provider=args.provider,
+            mode=args.mode,
+            checkpoint_path=checkpoint_path,
+        )
 
     return stats
 
@@ -1119,6 +1218,7 @@ def main(argv=None):
         retain_days=args.retain_days,
         retain_count=args.retain_count,
         force_lock=args.force_lock,
+        resume=args.resume,
         log_format=args.log_format,
     )
 

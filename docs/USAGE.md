@@ -66,6 +66,7 @@ Commands:
 - `--retain-count`: Keep only the most recent N snapshot/working artifacts per repository.
 - `--backup-path`: Backup path used by `validate-restore`.
 - `--restore-dir`: Clone target used by `validate-restore`, default `./restore-validation`.
+- `--resume`: Resume backup using checkpoint state from a previous interrupted run.
 
 ## Provider Behavior Matrix
 | Capability | Bitbucket | GitHub | GitLab | Notes |
@@ -257,6 +258,21 @@ python3 downloader.py validate-restore \
   --backup-path ./backups/bitbucket/acme/api-service.git \
   --restore-dir /tmp/api-service-restore
 ```
+
+### Resume an interrupted backup run
+```bash
+python3 downloader.py backup \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --resume
+```
+
+Resume semantics:
+- Checkpoint path: `<output>/<provider>/.repo-downloader-checkpoint.json`.
+- Repositories completed in a previous run are skipped when signature matches.
+- Checkpoint is cleared automatically when the resumed run completes without failures.
 
 ### Run locking
 Each run acquires a lock file under the output root:
