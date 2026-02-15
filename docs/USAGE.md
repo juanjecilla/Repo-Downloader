@@ -55,6 +55,18 @@ python3 downloader.py [options]
 - `--repo-retries`: Additional retries per repository after a failure, default `0`.
 - `--force-lock`: Replace an active/stale run lock for the selected provider/output root.
 
+## Provider Behavior Matrix
+| Capability | Bitbucket | GitHub | GitLab | Notes |
+|---|---|---|---|---|
+| `--provider` runtime support | Yes | Yes | Yes | All providers implement contract methods. |
+| Workspace filter (`--workspace`) | Yes | Yes | Yes | Bitbucket workspace, GitHub organization, GitLab group/namespace. |
+| Role filter (`--role`) | Yes | Ignored | Ignored | `--role` only affects Bitbucket permission API. |
+| Include/exclude repo filters | Yes | Yes | Yes | Applied in downloader layer against `workspace/repo` full name. |
+| Archived repo filtering | Yes | Yes | Yes | Uses provider-specific archive flags normalized by downloader. |
+| Branch selectors in working mode | Yes | Yes | Yes | `--branch`, `--branch-pattern`, `--default-branch-only`. |
+| Mirror + working output layout | Yes | Yes | Yes | Paths stay `<output>/<provider>/<workspace>/<repo>...`. |
+| Dry-run behavior | Yes | Yes | Yes | Planned clone/fetch/checkout actions are logged without git writes. |
+
 ## Backup Modes
 ### `mirror`
 - Creates or updates bare mirror repositories.

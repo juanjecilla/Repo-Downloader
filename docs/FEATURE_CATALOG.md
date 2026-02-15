@@ -136,7 +136,7 @@ Status values:
 
 ### F009 Provider Behavior Parity Matrix
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: ensure all providers behave the same for filtering, archive handling, and output paths.
 - Files:
   - `docs/USAGE.md`

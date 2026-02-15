@@ -152,6 +152,7 @@ Run this periodically to verify backups:
 - Preserve mirrors as source-of-truth backup artifacts.
 - Never run two jobs against the same provider/output root concurrently.
 - Use `--force-lock` only when an existing lock is stale or intentionally superseded.
+- Keep provider runs separate if needed; pathing is deterministic by provider under `<output>/<provider>/`.
 
 ## Future Operational Enhancements
 Future operational work items are tracked in:

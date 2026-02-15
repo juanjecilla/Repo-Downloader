@@ -310,6 +310,79 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         skip_events = [event for event in logger.events if event["action"] == "repository.skip"]
         self.assertEqual("exclude_match", skip_events[0]["reason"])
 
+    def test_run_backup_output_layout_is_consistent_across_providers(self):
+        for provider_name in ("bitbucket", "github", "gitlab"):
+            with self.subTest(provider=provider_name):
+                args = SimpleNamespace(
+                    workspace=None,
+                    role="member",
+                    include_archived=False,
+                    output_dir="./backups-test",
+                    provider=provider_name,
+                    mode="both",
+                    dry_run=True,
+                    include=[],
+                    exclude=[],
+                    branch_names=[],
+                    branch_patterns=[],
+                    default_branch_only=False,
+                    repo_retries=0,
+                )
+                provider = _FakeProvider()
+                git_source = _FakeGitSource()
+                logger = _MemoryLogger()
+
+                stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+                self.assertEqual(1, stats["processed"])
+                self.assertEqual(1, stats["succeeded"])
+                mirror_events = [
+                    event for event in logger.events if event["action"] == "sync.mirror.clone"
+                ]
+                working_events = [
+                    event for event in logger.events if event["action"] == "sync.working.clone"
+                ]
+                self.assertEqual(1, len(mirror_events))
+                self.assertEqual(1, len(working_events))
+                self.assertTrue(
+                    mirror_events[0]["path"].endswith(f"/{provider_name}/acme/example.git")
+                )
+                self.assertTrue(
+                    working_events[0]["path"].endswith(f"/{provider_name}/acme/example")
+                )
+
+    def test_run_backup_filter_parity_across_providers(self):
+        repositories = [
+            {"repository": {"full_name": "acme/private-service"}},
+            {"repository": {"full_name": "acme/public-service"}},
+        ]
+        for provider_name in ("bitbucket", "github", "gitlab"):
+            with self.subTest(provider=provider_name):
+                args = SimpleNamespace(
+                    workspace=None,
+                    role="member",
+                    include_archived=False,
+                    output_dir="./backups-test",
+                    provider=provider_name,
+                    mode="both",
+                    dry_run=True,
+                    include=["acme/*"],
+                    exclude=["acme/private-*"],
+                    branch_names=[],
+                    branch_patterns=[],
+                    default_branch_only=False,
+                    repo_retries=0,
+                )
+                provider = _FakeProvider(repositories=repositories)
+                git_source = _FakeGitSource()
+                logger = _MemoryLogger()
+
+                stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+                self.assertEqual(2, stats["processed"])
+                self.assertEqual(1, stats["succeeded"])
+                self.assertEqual(1, stats["skipped"])
+
     def test_json_logger_outputs_parseable_events_with_required_fields(self):
         buffer = io.StringIO()
         logger = RunLogger(log_format="json", run_id="run-test")
