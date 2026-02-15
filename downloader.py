@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+
 import argparse
 import fnmatch
 import getpass
@@ -203,26 +205,22 @@ def normalize_cli_list(raw_values):
 
 
 def classify_repository_failure(exc):
+    failure_type = "other"
     if isinstance(exc, AuthenticationError):
-        return "auth"
-
-    if isinstance(exc, RemoteAPIError):
-        return "api"
-
-    if isinstance(exc, RepositorySyncError):
+        failure_type = "auth"
+    elif isinstance(exc, RemoteAPIError):
+        failure_type = "api"
+    elif isinstance(exc, RepositorySyncError):
         message = str(exc).lower()
         if "checkout" in message:
-            return "checkout"
-        if "fetch" in message:
-            return "fetch"
-        if "clon" in message:
-            return "clone"
-        return "other"
-
-    if isinstance(exc, (KeyError, TypeError, ValueError)):
-        return "api"
-
-    return "other"
+            failure_type = "checkout"
+        elif "fetch" in message:
+            failure_type = "fetch"
+        elif "clon" in message:
+            failure_type = "clone"
+    elif isinstance(exc, (KeyError, TypeError, ValueError)):
+        failure_type = "api"
+    return failure_type
 
 
 def make_failure_counters():
@@ -524,7 +522,15 @@ def sync_working(
         )
 
 
-def sync_repository(args, provider, git_source, repository_entry, index, total_repositories, logger):
+def sync_repository(
+    args,
+    provider,
+    git_source,
+    repository_entry,
+    index,
+    total_repositories,
+    logger,
+):
     parsed = parse_repository_entry(repository_entry)
     repo_workspace = parsed["workspace"]
     repo_name = parsed["name"]

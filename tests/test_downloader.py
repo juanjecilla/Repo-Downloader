@@ -77,7 +77,7 @@ class _MemoryLogger:
         return None
 
 
-class TestDownloader(unittest.TestCase):
+class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-methods
     def test_selected_modes(self):
         self.assertEqual(("mirror", "working"), downloader.selected_modes("both"))
         self.assertEqual(("mirror",), downloader.selected_modes("mirror"))
