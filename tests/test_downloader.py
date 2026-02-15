@@ -12,10 +12,11 @@ from utils.log_utils import REDACTED_VALUE, RunLogger
 
 
 class _FakeProvider:
-    def __init__(self, repositories=None):
+    def __init__(self, repositories=None, branches=None):
         if repositories is None:
             repositories = [{"repository": {"full_name": "acme/example"}}]
         self._repositories = repositories
+        self._branches = branches or [{"name": "main"}, {"name": "dev"}]
 
     def list_repositories(self, workspace=None, role="member"):
         _ = workspace
@@ -27,10 +28,12 @@ class _FakeProvider:
             "full_name": f"{workspace}/{name}",
             "links": {"clone": [{"name": "ssh", "href": "git@example.com:acme/example.git"}]},
             "is_archived": False,
+            "mainbranch": {"name": "main"},
         }
 
     def list_branches(self, full_name):
-        return [{"name": "main"}, {"name": "dev"}]
+        _ = full_name
+        return self._branches
 
 
 class _FakeGitSource:
@@ -100,6 +103,11 @@ class TestDownloader(unittest.TestCase):
                 "acme/*",
                 "--exclude",
                 "acme/private-*",
+                "--branch",
+                "main",
+                "--branch-pattern",
+                "release/*",
+                "--default-branch-only",
             ]
         )
         self.assertEqual("bitbucket", args.provider)
@@ -109,6 +117,9 @@ class TestDownloader(unittest.TestCase):
         self.assertEqual("./logs/run.log", args.log_file)
         self.assertEqual(["acme/*"], args.include)
         self.assertEqual(["acme/private-*"], args.exclude)
+        self.assertEqual(["main"], args.branch)
+        self.assertEqual(["release/*"], args.branch_pattern)
+        self.assertTrue(args.default_branch_only)
 
     def test_parser_accepts_repeatable_and_comma_separated_patterns(self):
         parser = downloader.build_parser()
@@ -126,6 +137,23 @@ class TestDownloader(unittest.TestCase):
         )
         self.assertEqual(["acme/*,other/*", "team/*"], args.include)
         self.assertEqual(["acme/private-*", "other/legacy-*"], args.exclude)
+
+    def test_parser_accepts_repeatable_branch_selectors(self):
+        parser = downloader.build_parser()
+        args = parser.parse_args(
+            [
+                "--branch",
+                "main,dev",
+                "--branch",
+                "release",
+                "--branch-pattern",
+                "feature/*,hotfix/*",
+                "--branch-pattern",
+                "release/*",
+            ]
+        )
+        self.assertEqual(["main,dev", "release"], args.branch)
+        self.assertEqual(["feature/*,hotfix/*", "release/*"], args.branch_pattern)
 
     def test_resolve_token_from_environment(self):
         with patch.dict("os.environ", {"TOKEN_ENV_NAME": "secret-token"}, clear=False):
@@ -158,6 +186,9 @@ class TestDownloader(unittest.TestCase):
             dry_run=True,
             include=[],
             exclude=[],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
         )
         provider = _FakeProvider()
         git_source = _FakeGitSource()
@@ -183,6 +214,9 @@ class TestDownloader(unittest.TestCase):
             dry_run=True,
             include=["acme/*"],
             exclude=[],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
         )
         provider = _FakeProvider(
             repositories=[
@@ -214,6 +248,9 @@ class TestDownloader(unittest.TestCase):
             dry_run=True,
             include=["acme/*"],
             exclude=["acme/example"],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
         )
         provider = _FakeProvider(repositories=[{"repository": {"full_name": "acme/example"}}])
         git_source = _FakeGitSource()
@@ -238,6 +275,9 @@ class TestDownloader(unittest.TestCase):
             dry_run=True,
             include=[],
             exclude=["other/*"],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
         )
         provider = _FakeProvider(
             repositories=[
@@ -302,6 +342,65 @@ class TestDownloader(unittest.TestCase):
             with patch("getpass.getpass", return_value=token):
                 resolved = downloader.resolve_token(token_env=None, logger=None)
         self.assertEqual(token, resolved)
+
+    def test_select_working_branches_by_name_and_pattern(self):
+        branches = [
+            {"name": "main"},
+            {"name": "dev"},
+            {"name": "release/1.0"},
+            {"name": "feature/x"},
+        ]
+        selected = downloader.select_working_branches(
+            branches=branches,
+            explicit_branch_names=["dev"],
+            branch_patterns=["release/*"],
+            default_branch_only=False,
+            default_branch_name=None,
+        )
+        self.assertEqual(["dev", "release/1.0"], [branch["name"] for branch in selected])
+
+    def test_select_working_branches_default_only(self):
+        branches = [{"name": "main"}, {"name": "dev"}]
+        selected = downloader.select_working_branches(
+            branches=branches,
+            explicit_branch_names=["dev"],
+            branch_patterns=["*"],
+            default_branch_only=True,
+            default_branch_name="main",
+        )
+        self.assertEqual(["main"], [branch["name"] for branch in selected])
+
+    def test_run_backup_working_mode_respects_branch_selectors(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="working",
+            dry_run=False,
+            include=[],
+            exclude=[],
+            branch_names=["dev"],
+            branch_patterns=[],
+            default_branch_only=False,
+        )
+        provider = _FakeProvider(
+            branches=[
+                {"name": "main"},
+                {"name": "dev"},
+                {"name": "release/1"},
+            ]
+        )
+        git_source = _FakeGitSource()
+        logger = _MemoryLogger()
+
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(1, stats["processed"])
+        self.assertEqual(1, stats["succeeded"])
+        checkout_calls = [call for call in git_source.calls if call[0] == "checkout_branch"]
+        self.assertEqual([("checkout_branch", "dev")], checkout_calls)
 
 
 if __name__ == "__main__":
