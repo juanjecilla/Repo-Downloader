@@ -107,6 +107,10 @@ Run this periodically to verify backups:
 - Avoid deleting existing backup paths outside planned retention procedures.
 - Preserve mirrors as source-of-truth backup artifacts.
 
+## Pull Request Review Automation
+- CodeRabbit automatic review is configured in `.coderabbit.yaml`.
+- Any pull request targeting `main` or `develop` triggers auto review, including draft pull requests.
+
 ## Future Operational Enhancements
 Future operational work items are tracked in:
 - `docs/FUTURE_STEPS.md`

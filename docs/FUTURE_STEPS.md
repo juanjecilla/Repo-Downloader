@@ -70,10 +70,14 @@ Goal: support larger organizations and safer operations.
 2. Add metrics/health summary output and optional Prometheus text export (`F019`).
 3. Add secret handling hardening and redaction (`F020`).
 4. Add compatibility matrix + regression suite (`F021`).
+5. Configure PR review automation for `main` and `develop` (`F022`).
 
 Definition of done:
 - High-volume org backup runs complete predictably.
 - Security and compatibility checks are standardized.
+
+Progress:
+- `F022` completed.
 
 ## File Ownership Map For Future Work
 - CLI orchestration: `downloader.py`
