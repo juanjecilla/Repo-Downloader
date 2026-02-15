@@ -7,6 +7,7 @@
 - Provider credentials:
   - Bitbucket app password.
   - GitHub personal access token (classic or fine-grained with repository read access).
+  - GitLab personal access token with API read access.
 
 Install dependencies:
 ```bash
@@ -108,6 +109,17 @@ python3 downloader.py \
   --output-dir ./backups
 ```
 
+### GitLab backup for one group/namespace
+```bash
+export GITLAB_TOKEN="***"
+python3 downloader.py \
+  --provider gitlab \
+  --token-env GITLAB_TOKEN \
+  --workspace acme-group \
+  --mode both \
+  --output-dir ./backups
+```
+
 ### Dry run preview
 ```bash
 python3 downloader.py \
@@ -191,7 +203,7 @@ Use `--force-lock` only when you are sure the existing lock is stale or should b
 - Working copy backups are directly browsable as regular repositories.
 
 ## Known Limitations
-- GitLab provider is currently a stub and intentionally returns not-implemented status.
+- Provider behaviors can differ based on token scopes and provider-side permissions.
 
 ## Exit Codes
 - `0`: Completed without repository failures.

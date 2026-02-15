@@ -109,7 +109,7 @@ Status values:
 
 ### F007 GitLab Provider Implementation
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: implement real GitLab API support with personal/project tokens.
 - Files:
   - `data/source/remote_sources.py`

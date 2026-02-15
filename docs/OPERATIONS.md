@@ -42,6 +42,16 @@ python3 downloader.py \
   --output-dir ./backups
 ```
 
+### Profile: GitLab group backup
+```bash
+python3 downloader.py \
+  --provider gitlab \
+  --token-env GITLAB_TOKEN \
+  --workspace acme-group \
+  --mode both \
+  --output-dir ./backups
+```
+
 ### Profile: Scoped backup with include/exclude filters
 ```bash
 python3 downloader.py \

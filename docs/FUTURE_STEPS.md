@@ -44,6 +44,7 @@ Definition of done:
 
 Progress:
 - `F006` completed.
+- `F007` completed.
 
 ## Phase 3: Backup Product Features (P3)
 Goal: improve recovery workflows and storage management.
