@@ -181,6 +181,16 @@ python3 downloader.py backup \
 python3 downloader.py backup --config ./profiles/daily.toml
 ```
 
+### Profile: Parallel repository workers
+```bash
+python3 downloader.py backup \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --workers 4
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
@@ -248,6 +258,7 @@ Run this periodically to verify backups:
 - Keep snapshot root on durable storage when snapshot export is enabled.
 - Run retention first with `--dry-run` to verify planned deletions.
 - Use `--resume` only for reruns that should continue the same provider/mode/filter signature.
+- Start with `--workers 2` and scale gradually based on network and provider API limits.
 - Avoid deleting existing backup paths outside planned retention procedures.
 - Preserve mirrors as source-of-truth backup artifacts.
 - Never run two jobs against the same provider/output root concurrently.

@@ -252,7 +252,7 @@ Status values:
 
 ### F018 Concurrent Repository Sync
 - Priority: `later`
-- Status: `later`
+- Status: `done`
 - Goal: process repositories with a bounded worker pool.
 - Files:
   - `downloader.py`

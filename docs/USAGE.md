@@ -83,6 +83,7 @@ Commands:
 - `--branch-pattern`: In working mode, include branches matching glob patterns.
 - `--default-branch-only`: In working mode, checkout only the repository default branch.
 - `--repo-retries`: Additional retries per repository after a failure, default `0`.
+- `--workers`: Number of concurrent repository workers, default `1`.
 - `--force-lock`: Replace an active/stale run lock for the selected provider/output root.
 - `--retain-days`: Delete snapshot/working artifacts older than this many days.
 - `--retain-count`: Keep only the most recent N snapshot/working artifacts per repository.
@@ -234,6 +235,20 @@ Retry semantics:
 - The command attempts each repository once, plus `--repo-retries` additional attempts.
 - Failure classification counters are included in the run summary (`api`, `auth`, `clone`,
   `fetch`, `checkout`, `other`).
+
+### Enable parallel repository sync workers
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --workers 4
+```
+
+Worker semantics:
+- `--workers 1` is sequential execution (default).
+- When `--workers > 1`, repository work runs concurrently with deterministic grouped logs.
 
 ### Export mirror snapshots
 ```bash

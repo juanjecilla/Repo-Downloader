@@ -128,6 +128,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "--default-branch-only",
                 "--repo-retries",
                 "2",
+                "--workers",
+                "3",
                 "--force-lock",
                 "--resume",
             ]
@@ -149,6 +151,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(["release/*"], args.branch_pattern)
         self.assertTrue(args.default_branch_only)
         self.assertEqual(2, args.repo_retries)
+        self.assertEqual(3, args.workers)
         self.assertTrue(args.force_lock)
         self.assertTrue(args.resume)
 
@@ -471,6 +474,41 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 self.assertEqual(2, stats["processed"])
                 self.assertEqual(1, stats["succeeded"])
                 self.assertEqual(1, stats["skipped"])
+
+    def test_run_backup_workers_parallelizes_repositories(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="mirror",
+            dry_run=True,
+            include=[],
+            exclude=[],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
+            repo_retries=0,
+            workers=2,
+        )
+        provider = _FakeProvider(
+            repositories=[
+                {"repository": {"full_name": "acme/one"}},
+                {"repository": {"full_name": "acme/two"}},
+            ]
+        )
+        git_source = _FakeGitSource()
+        logger = _MemoryLogger()
+
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(2, stats["processed"])
+        self.assertEqual(2, stats["succeeded"])
+        concurrent_events = [
+            event for event in logger.events if event["action"] == "repositories.concurrent"
+        ]
+        self.assertEqual(1, len(concurrent_events))
 
     def test_run_backup_dry_run_plans_snapshot_export(self):
         args = SimpleNamespace(

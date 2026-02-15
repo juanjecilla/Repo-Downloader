@@ -96,6 +96,9 @@ Definition of done:
 - High-volume org backup runs complete predictably.
 - Security and compatibility checks are standardized.
 
+Progress:
+- `F018` completed.
+
 ## File Ownership Map For Future Work
 - CLI orchestration: `downloader.py`
 - Provider contract and implementations: `data/source/provider_interface.py`, `data/source/remote_sources.py`
