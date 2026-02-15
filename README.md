@@ -17,6 +17,9 @@ Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bi
 - Per-repository retries with failure classification summary (`--repo-retries`).
 - Run lock protection to prevent overlapping runs (`--force-lock` to override).
 - Optional mirror snapshot exports (`--snapshot-format zip|tar.gz` and `--snapshot-dir`).
+- Optional retention policies for snapshots/working artifacts (`--retain-days`, `--retain-count`).
+- Restore helper commands (`list-backups`, `validate-restore`) for inventory and restore drills.
+- Checkpoint-based resumable runs (`--resume`) for interrupted backup recovery.
 
 ## Quick Start
 1. Install dependencies:

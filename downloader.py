@@ -5,6 +5,7 @@ import fnmatch
 import getpass
 import importlib
 import os
+import shutil
 import sys
 import time
 
@@ -22,13 +23,20 @@ from utils.log_utils import NullLogger, RunLogger
 from utils.repo_utils import (
     acquire_run_lock,
     build_backup_paths,
+    build_checkpoint_path,
     build_snapshot_path,
+    collect_snapshot_paths,
     create_snapshot_archive,
+    delete_artifact_path,
     is_archived_repository,
+    load_checkpoint,
     normalize_repo_patterns,
     parse_repository_entry,
+    plan_retention_deletions,
+    remove_checkpoint,
     release_run_lock,
     repository_matches_filters,
+    save_checkpoint,
 )
 
 PROVIDER_CLASS_PATHS = {
@@ -46,6 +54,13 @@ def build_parser():
     )
 
     parser.add_argument("-u", "--username", type=str, help="Remote account username")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("backup", "list-backups", "validate-restore"),
+        default="backup",
+        help="CLI command to execute.",
+    )
     parser.add_argument(
         "--provider",
         choices=sorted(PROVIDER_CLASS_PATHS.keys()),
@@ -76,6 +91,18 @@ def build_parser():
         type=str,
         default="./snapshots",
         help="Root directory where snapshot archives are stored.",
+    )
+    parser.add_argument(
+        "--retain-days",
+        type=int,
+        default=None,
+        help="Delete snapshot/working artifacts older than this many days.",
+    )
+    parser.add_argument(
+        "--retain-count",
+        type=int,
+        default=None,
+        help="Keep only the most recent N snapshot/working artifacts per repository.",
     )
     parser.add_argument(
         "--include-archived",
@@ -168,6 +195,23 @@ def build_parser():
         "--force-lock",
         action="store_true",
         help="Replace an existing active run lock for the selected provider/output root.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume backup using checkpoint state from a previous interrupted run.",
+    )
+    parser.add_argument(
+        "--backup-path",
+        type=str,
+        default=None,
+        help="Backup path to validate with the 'validate-restore' command.",
+    )
+    parser.add_argument(
+        "--restore-dir",
+        type=str,
+        default="./restore-validation",
+        help="Directory where 'validate-restore' clones the backup for validation.",
     )
     return parser
 
@@ -454,6 +498,73 @@ def snapshot_mirror_if_enabled(
     return created_path
 
 
+def apply_retention_if_enabled(
+    logger,
+    provider_name,
+    workspace,
+    repository_name,
+    full_name,
+    working_path,
+    snapshot_dir,
+    retain_days=None,
+    retain_count=None,
+    dry_run=False,
+):
+    if retain_days is None and retain_count is None:
+        return
+
+    snapshot_paths = collect_snapshot_paths(
+        snapshot_dir=snapshot_dir,
+        provider=provider_name,
+        workspace=workspace,
+        repository_name=repository_name,
+    )
+    working_paths = [working_path] if os.path.exists(working_path) else []
+
+    for artifact_type, candidate_paths in (
+        ("snapshot", snapshot_paths),
+        ("working", working_paths),
+    ):
+        deletion_paths = plan_retention_deletions(
+            candidate_paths,
+            retain_days=retain_days,
+            retain_count=retain_count,
+        )
+        for artifact_path in deletion_paths:
+            if dry_run:
+                emit_text(logger, f"\t[DRY-RUN] Would delete {artifact_type}: {artifact_path}")
+                logger.event(
+                    "retention.delete",
+                    outcome="planned",
+                    provider=provider_name,
+                    repository=full_name,
+                    artifact_type=artifact_type,
+                    path=artifact_path,
+                    retain_days=retain_days,
+                    retain_count=retain_count,
+                )
+                continue
+
+            try:
+                delete_artifact_path(artifact_path)
+            except OSError as exc:
+                raise RepositorySyncError(
+                    f"Failed deleting retained {artifact_type} artifact '{artifact_path}': {exc}"
+                ) from exc
+
+            emit_text(logger, f"\tDeleted {artifact_type} artifact: {artifact_path}")
+            logger.event(
+                "retention.delete",
+                outcome="success",
+                provider=provider_name,
+                repository=full_name,
+                artifact_type=artifact_type,
+                path=artifact_path,
+                retain_days=retain_days,
+                retain_count=retain_count,
+            )
+
+
 def sync_working(
     git_source,
     provider,
@@ -687,6 +798,8 @@ def sync_repository(
     default_branch_name = get_default_branch_name(extended_repo)
     snapshot_format = getattr(args, "snapshot_format", None)
     snapshot_dir = getattr(args, "snapshot_dir", "./snapshots")
+    retain_days = getattr(args, "retain_days", None)
+    retain_count = getattr(args, "retain_count", None)
 
     for mode in selected_modes(args.mode):
         if mode == "mirror":
@@ -726,6 +839,19 @@ def sync_repository(
                 default_branch_name,
             )
 
+    apply_retention_if_enabled(
+        logger=logger,
+        provider_name=args.provider,
+        workspace=repo_workspace,
+        repository_name=repo_name,
+        full_name=full_name,
+        working_path=paths["working_path"],
+        snapshot_dir=snapshot_dir,
+        retain_days=retain_days,
+        retain_count=retain_count,
+        dry_run=args.dry_run,
+    )
+
     emit_text(logger, f"Finishing {repo_name} repository")
     logger.event(
         "repository.finish",
@@ -760,9 +886,75 @@ def run_backup(args, provider, git_source, logger=None):
         "failed": 0,
         "failure_types": make_failure_counters(),
     }
+    resume_enabled = bool(getattr(args, "resume", False)) and not args.dry_run
+    checkpoint_path = None
+    checkpoint_payload = None
+    completed_repositories = set()
+    if resume_enabled:
+        checkpoint_signature = {
+            "provider": args.provider,
+            "mode": args.mode,
+            "workspace": args.workspace,
+            "include": args.include,
+            "exclude": args.exclude,
+        }
+        checkpoint_path = build_checkpoint_path(args.output_dir, args.provider)
+        checkpoint_payload = load_checkpoint(checkpoint_path)
+        if checkpoint_payload.get("signature") == checkpoint_signature:
+            completed_repositories = set(checkpoint_payload.get("completed", []))
+            logger.event(
+                "checkpoint.load",
+                outcome="success",
+                provider=args.provider,
+                mode=args.mode,
+                checkpoint_path=checkpoint_path,
+                completed_count=len(completed_repositories),
+            )
+        else:
+            completed_repositories = set()
+            checkpoint_payload = {
+                "signature": checkpoint_signature,
+                "completed": [],
+            }
+            try:
+                save_checkpoint(checkpoint_path, checkpoint_payload)
+            except OSError as exc:
+                raise RemoteAPIError(
+                    f"Failed writing checkpoint state to '{checkpoint_path}': {exc}"
+                ) from exc
+            logger.event(
+                "checkpoint.reset",
+                outcome="success",
+                provider=args.provider,
+                mode=args.mode,
+                checkpoint_path=checkpoint_path,
+                reason="signature_mismatch_or_missing",
+            )
 
     for index, repository_entry in enumerate(repositories):
         stats["processed"] += 1
+        if resume_enabled:
+            try:
+                parsed_for_checkpoint = parse_repository_entry(repository_entry)
+                checkpoint_repository = parsed_for_checkpoint["full_name"]
+            except (KeyError, TypeError, ValueError):
+                checkpoint_repository = None
+            if checkpoint_repository and checkpoint_repository in completed_repositories:
+                emit_text(
+                    logger,
+                    f"\tSkipping repository from checkpoint: {checkpoint_repository}.",
+                )
+                logger.event(
+                    "repository.skip",
+                    outcome="skipped",
+                    provider=args.provider,
+                    repository=checkpoint_repository,
+                    mode=args.mode,
+                    reason="checkpoint_completed",
+                )
+                stats["skipped"] += 1
+                continue
+
         repository_for_log = "unknown"
         max_attempts = max(1, args.repo_retries + 1)
         for attempt in range(1, max_attempts + 1):
@@ -780,6 +972,15 @@ def run_backup(args, provider, git_source, logger=None):
                     stats["skipped"] += 1
                 else:
                     stats["succeeded"] += 1
+                    if resume_enabled and repository_for_log:
+                        completed_repositories.add(repository_for_log)
+                        checkpoint_payload["completed"] = sorted(completed_repositories)
+                        try:
+                            save_checkpoint(checkpoint_path, checkpoint_payload)
+                        except OSError as exc:
+                            raise RemoteAPIError(
+                                f"Failed writing checkpoint state to '{checkpoint_path}': {exc}"
+                            ) from exc
                 break
             except (
                 KeyError,
@@ -828,14 +1029,166 @@ def run_backup(args, provider, git_source, logger=None):
                 stats["failure_types"][failure_type] += 1
                 break
 
+    if resume_enabled and stats["failed"] == 0:
+        try:
+            remove_checkpoint(checkpoint_path)
+        except OSError as exc:
+            raise RemoteAPIError(
+                f"Failed removing checkpoint state '{checkpoint_path}': {exc}"
+            ) from exc
+        logger.event(
+            "checkpoint.clear",
+            outcome="success",
+            provider=args.provider,
+            mode=args.mode,
+            checkpoint_path=checkpoint_path,
+        )
+
     return stats
+
+
+def list_backup_entries(output_dir):
+    output_root = os.path.expanduser(output_dir)
+    if not os.path.isdir(output_root):
+        return []
+
+    entries = []
+    for provider in sorted(os.listdir(output_root)):
+        provider_path = os.path.join(output_root, provider)
+        if not os.path.isdir(provider_path):
+            continue
+        for workspace in sorted(os.listdir(provider_path)):
+            workspace_path = os.path.join(provider_path, workspace)
+            if not os.path.isdir(workspace_path):
+                continue
+            for repository_entry in sorted(os.listdir(workspace_path)):
+                artifact_path = os.path.join(workspace_path, repository_entry)
+                if repository_entry.endswith(".git") and os.path.isdir(artifact_path):
+                    entries.append(
+                        {
+                            "provider": provider,
+                            "workspace": workspace,
+                            "repository": repository_entry[: -len(".git")],
+                            "mode": "mirror",
+                            "path": artifact_path,
+                        }
+                    )
+                    continue
+                if os.path.isdir(artifact_path):
+                    entries.append(
+                        {
+                            "provider": provider,
+                            "workspace": workspace,
+                            "repository": repository_entry,
+                            "mode": "working",
+                            "path": artifact_path,
+                        }
+                    )
+    return entries
+
+
+def run_list_backups_command(args):
+    entries = list_backup_entries(args.output_dir)
+    if not entries:
+        print("No backups found.")
+        return 0
+
+    print(f"Found {len(entries)} backup entries:")
+    for entry in entries:
+        print(
+            f"{entry['provider']}/{entry['workspace']}/{entry['repository']} "
+            f"[{entry['mode']}] -> {entry['path']}"
+        )
+    return 0
+
+
+def perform_restore_validation(backup_path, restore_dir):
+    backup_root = os.path.expanduser(backup_path)
+    target_dir = os.path.expanduser(restore_dir)
+
+    if not os.path.exists(backup_root):
+        raise ProviderConfigurationError(f"Backup path does not exist: {backup_root}")
+
+    try:
+        git_module = importlib.import_module("git")
+        repo_class = getattr(git_module, "Repo")
+        git_exc_module = importlib.import_module("git.exc")
+        git_error_class = getattr(git_exc_module, "GitError")
+    except ModuleNotFoundError as exc:
+        raise ProviderConfigurationError(
+            f"Missing dependency '{exc.name}' required for restore validation. "
+            "Install project dependencies with `pip install -r requirements.txt`."
+        ) from exc
+
+    if os.path.isdir(target_dir):
+        shutil.rmtree(target_dir)
+    elif os.path.exists(target_dir):
+        os.remove(target_dir)
+
+    try:
+        restored_repo = repo_class.clone_from(backup_root, target_dir)
+    except git_error_class as exc:
+        raise RepositorySyncError(
+            f"Failed cloning backup '{backup_root}' into '{target_dir}': {exc}"
+        ) from exc
+    except (OSError, ValueError, TypeError) as exc:
+        raise RepositorySyncError(
+            f"Failed cloning backup '{backup_root}' into '{target_dir}': {exc}"
+        ) from exc
+
+    branch_names = [head.name for head in getattr(restored_repo, "heads", [])]
+    remote_ref_names = []
+    try:
+        remote_ref_names = [ref.name for ref in restored_repo.remotes.origin.refs]
+    except (AttributeError, TypeError, ValueError):
+        remote_ref_names = []
+
+    if not branch_names and not remote_ref_names:
+        raise RepositorySyncError(
+            f"Restore validation failed for '{backup_root}': cloned repository has no refs."
+        )
+
+    return {
+        "backup_path": backup_root,
+        "restore_dir": target_dir,
+        "branch_count": len(branch_names),
+        "remote_ref_count": len(remote_ref_names),
+    }
+
+
+def run_validate_restore_command(args):
+    if not args.backup_path:
+        print("[ERROR] --backup-path is required for validate-restore.")
+        return 1
+
+    try:
+        result = perform_restore_validation(args.backup_path, args.restore_dir)
+    except RepoDownloaderError as exc:
+        print(f"[ERROR] {exc}")
+        return 1
+
+    print(
+        "Restore validation succeeded: "
+        f"backup={result['backup_path']}, restore_dir={result['restore_dir']}, "
+        f"branch_count={result['branch_count']}, remote_ref_count={result['remote_ref_count']}"
+    )
+    return 0
 
 
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "list-backups":
+        return run_list_backups_command(args)
+    if args.command == "validate-restore":
+        return run_validate_restore_command(args)
+
     if args.repo_retries < 0:
         parser.error("--repo-retries must be zero or a positive integer.")
+    if args.retain_days is not None and args.retain_days < 0:
+        parser.error("--retain-days must be zero or a positive integer.")
+    if args.retain_count is not None and args.retain_count < 0:
+        parser.error("--retain-count must be zero or a positive integer.")
     args.include = normalize_repo_patterns(args.include)
     args.exclude = normalize_repo_patterns(args.exclude)
     args.branch_names = normalize_cli_list(args.branch)
@@ -845,6 +1198,7 @@ def main(argv=None):
     logger.event(
         "run.start",
         outcome="start",
+        command=args.command,
         provider=args.provider,
         mode=args.mode,
         workspace=args.workspace,
@@ -861,7 +1215,10 @@ def main(argv=None):
         branch_patterns=args.branch_patterns,
         default_branch_only=args.default_branch_only,
         repo_retries=args.repo_retries,
+        retain_days=args.retain_days,
+        retain_count=args.retain_count,
         force_lock=args.force_lock,
+        resume=args.resume,
         log_format=args.log_format,
     )
 

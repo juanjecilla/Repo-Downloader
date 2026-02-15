@@ -31,11 +31,17 @@ If `--token-env` is provided but not set, the CLI falls back to interactive prom
 
 ## CLI Reference
 ```bash
-python3 downloader.py [options]
+python3 downloader.py [command] [options]
 ```
+
+Commands:
+- `backup` (default): run backup sync flow.
+- `list-backups`: list discovered mirror/working backup paths.
+- `validate-restore`: clone a backup locally and verify refs are readable.
 
 ### Options
 - `-u, --username`: Remote account username.
+- `command`: Optional command (`backup`, `list-backups`, `validate-restore`), default `backup`.
 - `--provider`: Provider backend (`bitbucket`, `github`, `gitlab`), default `bitbucket`.
 - `--mode`: Backup mode (`mirror`, `working`, `both`), default `both`.
 - `-w, --workspace`: Optional workspace filter.
@@ -56,6 +62,11 @@ python3 downloader.py [options]
 - `--default-branch-only`: In working mode, checkout only the repository default branch.
 - `--repo-retries`: Additional retries per repository after a failure, default `0`.
 - `--force-lock`: Replace an active/stale run lock for the selected provider/output root.
+- `--retain-days`: Delete snapshot/working artifacts older than this many days.
+- `--retain-count`: Keep only the most recent N snapshot/working artifacts per repository.
+- `--backup-path`: Backup path used by `validate-restore`.
+- `--restore-dir`: Clone target used by `validate-restore`, default `./restore-validation`.
+- `--resume`: Resume backup using checkpoint state from a previous interrupted run.
 
 ## Provider Behavior Matrix
 | Capability | Bitbucket | GitHub | GitLab | Notes |
@@ -217,6 +228,51 @@ Snapshot semantics:
 - Snapshots are exported after mirror sync completes for each repository.
 - Snapshot path format:
   - `./snapshots/<provider>/<workspace>/<repo>-<timestamp>.<zip|tar.gz>`
+
+### Apply retention policy
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode mirror \
+  --snapshot-format zip \
+  --snapshot-dir ./snapshots \
+  --retain-days 30 \
+  --retain-count 20
+```
+
+Retention semantics:
+- `--retain-days` deletes artifacts older than the given number of days.
+- `--retain-count` keeps only the newest N artifacts for the repository.
+- Use `--dry-run` to review planned deletions before applying them.
+
+### List known backup artifacts
+```bash
+python3 downloader.py list-backups --output-dir ./backups
+```
+
+### Validate restore from a mirror backup
+```bash
+python3 downloader.py validate-restore \
+  --backup-path ./backups/bitbucket/acme/api-service.git \
+  --restore-dir /tmp/api-service-restore
+```
+
+### Resume an interrupted backup run
+```bash
+python3 downloader.py backup \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --resume
+```
+
+Resume semantics:
+- Checkpoint path: `<output>/<provider>/.repo-downloader-checkpoint.json`.
+- Repositories completed in a previous run are skipped when signature matches.
+- Checkpoint is cleared automatically when the resumed run completes without failures.
 
 ### Run locking
 Each run acquires a lock file under the output root:
