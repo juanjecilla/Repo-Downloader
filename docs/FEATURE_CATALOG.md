@@ -216,7 +216,7 @@ Status values:
 
 ### F015 Schedule Profiles and Automation Examples
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: document and template cron/automation usage.
 - Files:
   - `docs/OPERATIONS.md`
