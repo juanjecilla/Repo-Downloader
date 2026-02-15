@@ -139,6 +139,11 @@ python3 downloader.py backup \
   --resume
 ```
 
+### Profile: Config-driven run
+```bash
+python3 downloader.py backup --config ./profiles/daily.toml
+```
+
 ## Observability and Logs
 - Default `text` logs include per-repository actions and summary counters.
 - `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.

@@ -204,7 +204,7 @@ Status values:
 
 ### F014 Config Profile Support
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: support config file driven runs (TOML/YAML).
 - Files:
   - `downloader.py`

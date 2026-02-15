@@ -55,6 +55,12 @@ def build_parser():
 
     parser.add_argument("-u", "--username", type=str, help="Remote account username")
     parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to a TOML/YAML config profile.",
+    )
+    parser.add_argument(
         "command",
         nargs="?",
         choices=("backup", "list-backups", "validate-restore"),
@@ -219,6 +225,91 @@ def build_parser():
 def emit_text(logger, message):
     if getattr(logger, "log_format", "text") == "text":
         print(message)
+
+
+def _load_toml_config(config_path):
+    try:
+        import tomllib  # Python 3.11+
+    except ModuleNotFoundError:
+        try:
+            import tomli as tomllib  # Python <3.11
+        except ModuleNotFoundError as exc:
+            raise ProviderConfigurationError(
+                "TOML config requires 'tomli' on Python versions below 3.11."
+            ) from exc
+
+    try:
+        with open(config_path, "rb") as config_file:
+            payload = tomllib.load(config_file)
+    except OSError as exc:
+        raise ProviderConfigurationError(
+            f"Failed reading config file '{config_path}': {exc}"
+        ) from exc
+    except ValueError as exc:
+        raise ProviderConfigurationError(f"Invalid TOML config '{config_path}': {exc}") from exc
+
+    return payload
+
+
+def _load_yaml_config(config_path):
+    try:
+        import yaml
+    except ModuleNotFoundError as exc:
+        raise ProviderConfigurationError(
+            "YAML config requires dependency 'PyYAML'. Install project dependencies."
+        ) from exc
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as config_file:
+            payload = yaml.safe_load(config_file) or {}
+    except OSError as exc:
+        raise ProviderConfigurationError(
+            f"Failed reading config file '{config_path}': {exc}"
+        ) from exc
+    except yaml.YAMLError as exc:
+        raise ProviderConfigurationError(f"Invalid YAML config '{config_path}': {exc}") from exc
+
+    return payload
+
+
+def load_config_file(config_path):
+    resolved_path = os.path.expanduser(config_path)
+    extension = os.path.splitext(resolved_path)[1].lower()
+    if extension == ".toml":
+        payload = _load_toml_config(resolved_path)
+    elif extension in (".yaml", ".yml"):
+        payload = _load_yaml_config(resolved_path)
+    else:
+        raise ProviderConfigurationError(
+            "Config file extension must be .toml, .yaml, or .yml."
+        )
+
+    if not isinstance(payload, dict):
+        raise ProviderConfigurationError(f"Config file '{resolved_path}' must contain a mapping.")
+
+    backup_section = payload.get("backup")
+    if isinstance(backup_section, dict):
+        payload = backup_section
+
+    normalized = {}
+    for key, value in payload.items():
+        normalized[key.replace("-", "_")] = value
+    return normalized
+
+
+def apply_config_defaults(parser, args, config_values):
+    repeatable_keys = {"include", "exclude", "branch", "branch_pattern"}
+    for key, value in config_values.items():
+        if not hasattr(args, key):
+            continue
+        current_value = getattr(args, key)
+        default_value = parser.get_default(key)
+        if current_value != default_value:
+            continue
+        if key in repeatable_keys and isinstance(value, str):
+            value = [value]
+        setattr(args, key, value)
+    return args
 
 
 def resolve_token(token_env, logger=None):
@@ -1178,6 +1269,10 @@ def run_validate_restore_command(args):
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.config:
+        config_values = load_config_file(args.config)
+        args = apply_config_defaults(parser, args, config_values)
+
     if args.command == "list-backups":
         return run_list_backups_command(args)
     if args.command == "validate-restore":
@@ -1199,6 +1294,7 @@ def main(argv=None):
         "run.start",
         outcome="start",
         command=args.command,
+        config=args.config,
         provider=args.provider,
         mode=args.mode,
         workspace=args.workspace,

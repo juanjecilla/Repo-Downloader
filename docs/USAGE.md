@@ -41,6 +41,7 @@ Commands:
 
 ### Options
 - `-u, --username`: Remote account username.
+- `--config`: Path to TOML/YAML profile file.
 - `command`: Optional command (`backup`, `list-backups`, `validate-restore`), default `backup`.
 - `--provider`: Provider backend (`bitbucket`, `github`, `gitlab`), default `bitbucket`.
 - `--mode`: Backup mode (`mirror`, `working`, `both`), default `both`.
@@ -273,6 +274,31 @@ Resume semantics:
 - Checkpoint path: `<output>/<provider>/.repo-downloader-checkpoint.json`.
 - Repositories completed in a previous run are skipped when signature matches.
 - Checkpoint is cleared automatically when the resumed run completes without failures.
+
+### Run from a config profile
+```bash
+python3 downloader.py backup --config ./profiles/daily.toml
+```
+
+Example `daily.toml`:
+```toml
+[backup]
+provider = "bitbucket"
+mode = "both"
+workspace = "acme"
+output_dir = "./backups"
+snapshot_format = "zip"
+snapshot_dir = "./snapshots"
+retain_days = 30
+retain_count = 20
+resume = true
+include = ["acme/*"]
+exclude = ["acme/private-*"]
+```
+
+Config precedence:
+- CLI flags override config file values.
+- Config values are used only when the matching CLI option remains at its default value.
 
 ### Run locking
 Each run acquires a lock file under the output root:
