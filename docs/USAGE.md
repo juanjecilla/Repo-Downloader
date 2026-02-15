@@ -46,6 +46,9 @@ python3 downloader.py [options]
 - `--log-file`: Optional file path where logs are written in the selected format.
 - `--include`: Include repository full-name glob patterns. Repeat or comma-separate values.
 - `--exclude`: Exclude repository full-name glob patterns. Repeat or comma-separate values.
+- `--branch`: In working mode, include only specific branch names. Repeat or comma-separate values.
+- `--branch-pattern`: In working mode, include branches matching glob patterns.
+- `--default-branch-only`: In working mode, checkout only the repository default branch.
 
 ## Backup Modes
 ### `mirror`
@@ -127,6 +130,22 @@ Filtering semantics:
 - Include patterns are applied first. If any include pattern is provided, a repository must match at least one.
 - Exclude patterns are applied second. Any exclude match skips the repository.
 - Pattern matching runs against repository full names (`workspace/repo`).
+
+### Select working-mode branches
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode working \
+  --branch "main,release" \
+  --branch-pattern "hotfix/*"
+```
+
+Branch selector semantics:
+- Selectors apply only in `working` mode.
+- If selectors are omitted, all provider branches are considered.
+- `--default-branch-only` takes precedence over `--branch` and `--branch-pattern`.
 
 ## Restore Notes
 - Mirror restore:

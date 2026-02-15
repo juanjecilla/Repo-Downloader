@@ -46,7 +46,7 @@ Status values:
 
 ### F003 Branch Selection Controls
 - Priority: `next`
-- Status: `next`
+- Status: `done`
 - Goal: reduce checkout work in working mode.
 - Files:
   - `downloader.py`

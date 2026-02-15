@@ -26,6 +26,7 @@ Definition of done:
 Progress:
 - `F001` completed.
 - `F002` completed.
+- `F003` completed.
 
 ## Phase 2: Provider Expansion (P2)
 Goal: support multi-provider backups without changing CLI semantics.
