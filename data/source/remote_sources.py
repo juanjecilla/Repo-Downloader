@@ -1,7 +1,8 @@
+from urllib.parse import quote
+
 import requests
 from requests.adapters import HTTPAdapter
 from requests.auth import HTTPBasicAuth
-from urllib.parse import quote
 from urllib3.util.retry import Retry
 
 from data.source.provider_interface import RemoteProvider
@@ -274,7 +275,7 @@ class _NotImplementedProvider(RemoteProvider):
         return self._auth_error
 
 
-class GitLabSource(_NotImplementedProvider):
+class GitLabSource(RemoteProvider):
     provider_name = "gitlab"
 
     BASE_API_URL = "https://gitlab.com/api/v4/"
