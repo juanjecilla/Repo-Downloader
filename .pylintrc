@@ -10,12 +10,15 @@ disable=
     too-many-positional-arguments,
     too-many-locals,
     too-many-statements,
+    too-many-branches,
+    too-many-nested-blocks,
     too-few-public-methods,
     invalid-name,
     unused-argument,
     import-outside-toplevel,
     consider-using-with,
-    duplicate-code
+    duplicate-code,
+    useless-return
 
 [FORMAT]
 max-line-length=100
