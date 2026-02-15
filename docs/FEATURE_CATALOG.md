@@ -227,7 +227,7 @@ Status values:
 
 ### F016 pipx / PyInstaller Packaging
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: ship easy installation targets.
 - Files:
   - `README.md`

@@ -14,6 +14,16 @@ Install dependencies:
 python3 -m pip install -r requirements.txt
 ```
 
+Install packaged CLI with `pipx`:
+```bash
+pipx install .
+```
+
+After installation, run with:
+```bash
+repo-downloader [command] [options]
+```
+
 ## Authentication
 Repo-Downloader uses a token/app-password value for API authentication.
 
@@ -32,6 +42,11 @@ If `--token-env` is provided but not set, the CLI falls back to interactive prom
 ## CLI Reference
 ```bash
 python3 downloader.py [command] [options]
+```
+
+Packaged entry point equivalent:
+```bash
+repo-downloader [command] [options]
 ```
 
 Commands:
