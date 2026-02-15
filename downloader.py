@@ -1,21 +1,28 @@
 # pylint: disable=too-many-lines
 
 import argparse
+import concurrent.futures
 import fnmatch
 import getpass
 import importlib
+import json
 import os
 import shutil
 import sys
 import time
 
 from utils import url_utils
+from utils.compatibility import (
+    SUPPORTED_PLATFORM_LABELS,
+    build_runtime_compatibility_report,
+)
 from utils.errors import (
     AuthenticationError,
     ProviderConfigurationError,
     ProviderNotImplementedError,
     RemoteAPIError,
     RepoDownloaderError,
+    redact_sensitive_text,
     RunLockError,
     RepositorySyncError,
 )
@@ -151,6 +158,12 @@ def build_parser():
         help="Optional path to write logs in the selected format.",
     )
     parser.add_argument(
+        "--summary-file",
+        type=str,
+        default=None,
+        help="Optional JSON file path to export end-of-run summary metrics.",
+    )
+    parser.add_argument(
         "--include",
         action="append",
         default=None,
@@ -198,6 +211,12 @@ def build_parser():
         help="Additional retries per repository after a failure.",
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of concurrent repository sync workers.",
+    )
+    parser.add_argument(
         "--force-lock",
         action="store_true",
         help="Replace an existing active run lock for the selected provider/output root.",
@@ -223,8 +242,59 @@ def build_parser():
 
 
 def emit_text(logger, message):
+    if hasattr(logger, "emit_text"):
+        logger.emit_text(message)
+        return
     if getattr(logger, "log_format", "text") == "text":
         print(message)
+
+
+class BufferedLogger:
+    def __init__(self, log_format="text"):
+        self.log_format = log_format
+        self.records = []
+
+    def emit_text(self, message):
+        self.records.append(("text", message))
+
+    def event(self, action, outcome="info", level="INFO", message=None, **fields):
+        payload = {
+            "action": action,
+            "outcome": outcome,
+            "level": level,
+            "message": message,
+            "fields": fields,
+        }
+        self.records.append(("event", payload))
+        return payload
+
+    def close(self):
+        return None
+
+
+def flush_buffered_logger(buffered_logger, target_logger):
+    for record_type, payload in buffered_logger.records:
+        if record_type == "text":
+            emit_text(target_logger, payload)
+            continue
+        target_logger.event(
+            payload["action"],
+            outcome=payload["outcome"],
+            level=payload["level"],
+            message=payload["message"],
+            **payload["fields"],
+        )
+
+
+def write_summary_report(summary_file, payload):
+    summary_path = os.path.expanduser(summary_file)
+    summary_directory = os.path.dirname(summary_path)
+    if summary_directory:
+        os.makedirs(summary_directory, exist_ok=True)
+    with open(summary_path, "w", encoding="utf-8") as summary_handle:
+        json.dump(payload, summary_handle, sort_keys=True, indent=2)
+        summary_handle.write("\n")
+    return summary_path
 
 
 def _load_toml_config(config_path):
@@ -393,6 +463,61 @@ def format_failure_counters(counters):
     if non_zero:
         return ", ".join(non_zero)
     return "none"
+
+
+def sanitize_error_text(error, sensitive_values=None):
+    return redact_sensitive_text(error, sensitive_values=sensitive_values)
+
+
+def emit_runtime_compatibility(logger):
+    report = build_runtime_compatibility_report()
+    logger.event(
+        "runtime.compatibility",
+        outcome="info",
+        python_version=report["python_version"],
+        minimum_python_version=report["minimum_python_version"],
+        python_supported=report["python_supported"],
+        platform=report["platform"],
+        platform_supported=report["platform_supported"],
+        git_version=report["git_version"],
+        minimum_git_version=report["minimum_git_version"],
+        git_supported=report["git_supported"],
+    )
+
+    if not report["python_supported"]:
+        emit_text(
+            logger,
+            (
+                "[WARN] Python runtime is below supported minimum "
+                f"({report['python_version']} < {report['minimum_python_version']})."
+            ),
+        )
+
+    if not report["platform_supported"]:
+        supported_platforms = ", ".join(SUPPORTED_PLATFORM_LABELS)
+        emit_text(
+            logger,
+            (
+                "[WARN] Runtime platform is outside validated compatibility matrix "
+                f"({report['platform']}; supported: {supported_platforms})."
+            ),
+        )
+
+    if report["git_version"] is None:
+        emit_text(
+            logger,
+            "[WARN] Could not detect git version. Ensure git is installed and available in PATH.",
+        )
+    elif not report["git_supported"]:
+        emit_text(
+            logger,
+            (
+                "[WARN] Git runtime is below supported minimum "
+                f"({report['git_version']} < {report['minimum_git_version']})."
+            ),
+        )
+
+    return report
 
 
 def get_default_branch_name(extended_repository):
@@ -814,6 +939,7 @@ def sync_repository(
     total_repositories,
     logger,
 ):
+    mode_duration_ms = {"mirror": 0, "working": 0}
     parsed = parse_repository_entry(repository_entry)
     repo_workspace = parsed["workspace"]
     repo_name = parsed["name"]
@@ -840,7 +966,7 @@ def sync_repository(
             reason=filter_reason,
             detail=filter_detail,
         )
-        return "skipped", full_name
+        return "skipped", full_name, mode_duration_ms
 
     logger.event(
         "repository.start",
@@ -867,7 +993,7 @@ def sync_repository(
             mode=args.mode,
             reason="archived",
         )
-        return "skipped", full_name
+        return "skipped", full_name, mode_duration_ms
 
     clone_links = extended_repo.get("links", {}).get("clone", [])
     clone_url = url_utils.get_ssh_url_from_list(clone_links)
@@ -881,7 +1007,7 @@ def sync_repository(
             mode=args.mode,
             reason="missing_ssh_clone_url",
         )
-        return "skipped", full_name
+        return "skipped", full_name, mode_duration_ms
 
     paths = build_backup_paths(args.output_dir, args.provider, repo_workspace, repo_name)
     if not args.dry_run:
@@ -893,6 +1019,7 @@ def sync_repository(
     retain_count = getattr(args, "retain_count", None)
 
     for mode in selected_modes(args.mode):
+        mode_started_at = time.monotonic()
         if mode == "mirror":
             sync_mirror(
                 git_source,
@@ -929,6 +1056,7 @@ def sync_repository(
                 args.default_branch_only,
                 default_branch_name,
             )
+        mode_duration_ms[mode] += int((time.monotonic() - mode_started_at) * 1000)
 
     apply_retention_if_enabled(
         logger=logger,
@@ -951,10 +1079,104 @@ def sync_repository(
         repository=full_name,
         mode=args.mode,
     )
-    return "success", full_name
+    return "success", full_name, mode_duration_ms
 
 
-def run_backup(args, provider, git_source, logger=None):
+def process_repository_with_retries(
+    args,
+    provider,
+    git_source,
+    repository_entry,
+    index,
+    total_repositories,
+    logger,
+    sensitive_values=None,
+):
+    repository_for_log = "unknown"
+    mode_duration_ms = {"mirror": 0, "working": 0}
+    max_attempts = max(1, args.repo_retries + 1)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            outcome, repository_for_log, mode_duration_ms = sync_repository(
+                args,
+                provider,
+                git_source,
+                repository_entry,
+                index,
+                total_repositories,
+                logger,
+            )
+            if outcome == "skipped":
+                return {
+                    "status": "skipped",
+                    "repository": repository_for_log,
+                    "mode_duration_ms": mode_duration_ms,
+                }
+            return {
+                "status": "succeeded",
+                "repository": repository_for_log,
+                "mode_duration_ms": mode_duration_ms,
+            }
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            AuthenticationError,
+            RemoteAPIError,
+            RepositorySyncError,
+        ) as exc:
+            failure_type = classify_repository_failure(exc)
+            sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)
+            if attempt < max_attempts:
+                logger.event(
+                    "repository.retry",
+                    outcome="retrying",
+                    level="WARNING",
+                    provider=args.provider,
+                    repository=repository_for_log,
+                    mode=args.mode,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    failure_type=failure_type,
+                    error=sanitized_error,
+                )
+                emit_text(
+                    logger,
+                    f"[WARN] Repository failed ({failure_type}), retrying "
+                    f"{attempt}/{max_attempts - 1}: {sanitized_error}",
+                )
+                continue
+
+            logger.event(
+                "repository.finish",
+                outcome="failed",
+                level="ERROR",
+                provider=args.provider,
+                repository=repository_for_log,
+                mode=args.mode,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                failure_type=failure_type,
+                error=sanitized_error,
+            )
+            emit_text(logger, f"[ERROR] Failed processing repository entry: {sanitized_error}")
+            emit_text(logger, "Moving to next repository.")
+            return {
+                "status": "failed",
+                "repository": repository_for_log,
+                "failure_type": failure_type,
+                "mode_duration_ms": mode_duration_ms,
+            }
+
+    return {
+        "status": "failed",
+        "repository": repository_for_log,
+        "failure_type": "other",
+        "mode_duration_ms": mode_duration_ms,
+    }
+
+
+def run_backup(args, provider, git_source, logger=None, sensitive_values=None):
     logger = logger or NullLogger()
     emit_text(logger, "Requesting repositories with permission")
     logger.event("repositories.request", outcome="start", provider=args.provider, mode=args.mode)
@@ -976,6 +1198,7 @@ def run_backup(args, provider, git_source, logger=None):
         "skipped": 0,
         "failed": 0,
         "failure_types": make_failure_counters(),
+        "mode_duration_ms": {"mirror": 0, "working": 0},
     }
     resume_enabled = bool(getattr(args, "resume", False)) and not args.dry_run
     checkpoint_path = None
@@ -1022,6 +1245,36 @@ def run_backup(args, provider, git_source, logger=None):
                 reason="signature_mismatch_or_missing",
             )
 
+    def checkpoint_success(repository_name):
+        if not resume_enabled or not repository_name:
+            return
+        completed_repositories.add(repository_name)
+        checkpoint_payload["completed"] = sorted(completed_repositories)
+        try:
+            save_checkpoint(checkpoint_path, checkpoint_payload)
+        except OSError as exc:
+            raise RemoteAPIError(
+                f"Failed writing checkpoint state to '{checkpoint_path}': {exc}"
+            ) from exc
+
+    def apply_repository_result(result):
+        mode_duration = result.get("mode_duration_ms", {})
+        for mode in ("mirror", "working"):
+            stats["mode_duration_ms"][mode] += mode_duration.get(mode, 0)
+
+        status = result.get("status")
+        if status == "skipped":
+            stats["skipped"] += 1
+            return
+        if status == "succeeded":
+            stats["succeeded"] += 1
+            checkpoint_success(result.get("repository"))
+            return
+        stats["failed"] += 1
+        failure_type = result.get("failure_type", "other")
+        stats["failure_types"][failure_type] += 1
+
+    pending_repositories = []
     for index, repository_entry in enumerate(repositories):
         stats["processed"] += 1
         if resume_enabled:
@@ -1045,80 +1298,57 @@ def run_backup(args, provider, git_source, logger=None):
                 )
                 stats["skipped"] += 1
                 continue
+        pending_repositories.append((index, repository_entry))
 
-        repository_for_log = "unknown"
-        max_attempts = max(1, args.repo_retries + 1)
-        for attempt in range(1, max_attempts + 1):
-            try:
-                outcome, repository_for_log = sync_repository(
+    worker_count = max(1, getattr(args, "workers", 1))
+    if worker_count > 1 and len(pending_repositories) > 1:
+        logger.event(
+            "repositories.concurrent",
+            outcome="enabled",
+            provider=args.provider,
+            mode=args.mode,
+            workers=worker_count,
+            queued_count=len(pending_repositories),
+        )
+        result_by_index = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {}
+            for index, repository_entry in pending_repositories:
+                buffered_logger = BufferedLogger(log_format=logger.log_format)
+                future = executor.submit(
+                    process_repository_with_retries,
                     args,
                     provider,
                     git_source,
                     repository_entry,
                     index,
                     len(repositories),
-                    logger,
+                    buffered_logger,
+                    sensitive_values,
                 )
-                if outcome == "skipped":
-                    stats["skipped"] += 1
-                else:
-                    stats["succeeded"] += 1
-                    if resume_enabled and repository_for_log:
-                        completed_repositories.add(repository_for_log)
-                        checkpoint_payload["completed"] = sorted(completed_repositories)
-                        try:
-                            save_checkpoint(checkpoint_path, checkpoint_payload)
-                        except OSError as exc:
-                            raise RemoteAPIError(
-                                f"Failed writing checkpoint state to '{checkpoint_path}': {exc}"
-                            ) from exc
-                break
-            except (
-                KeyError,
-                TypeError,
-                ValueError,
-                AuthenticationError,
-                RemoteAPIError,
-                RepositorySyncError,
-            ) as exc:
-                failure_type = classify_repository_failure(exc)
-                if attempt < max_attempts:
-                    logger.event(
-                        "repository.retry",
-                        outcome="retrying",
-                        level="WARNING",
-                        provider=args.provider,
-                        repository=repository_for_log,
-                        mode=args.mode,
-                        attempt=attempt,
-                        max_attempts=max_attempts,
-                        failure_type=failure_type,
-                        error=str(exc),
-                    )
-                    emit_text(
-                        logger,
-                        f"[WARN] Repository failed ({failure_type}), retrying "
-                        f"{attempt}/{max_attempts - 1}: {exc}",
-                    )
-                    continue
+                future_map[future] = (index, buffered_logger)
 
-                logger.event(
-                    "repository.finish",
-                    outcome="failed",
-                    level="ERROR",
-                    provider=args.provider,
-                    repository=repository_for_log,
-                    mode=args.mode,
-                    attempt=attempt,
-                    max_attempts=max_attempts,
-                    failure_type=failure_type,
-                    error=str(exc),
-                )
-                emit_text(logger, f"[ERROR] Failed processing repository entry: {exc}")
-                emit_text(logger, "Moving to next repository.")
-                stats["failed"] += 1
-                stats["failure_types"][failure_type] += 1
-                break
+            for future, metadata in future_map.items():
+                index, buffered_logger = metadata
+                result_by_index[index] = (future.result(), buffered_logger)
+
+        for index in sorted(result_by_index):
+            result, buffered_logger = result_by_index[index]
+            flush_buffered_logger(buffered_logger, logger)
+            apply_repository_result(result)
+    else:
+        for index, repository_entry in pending_repositories:
+            result = process_repository_with_retries(
+                args,
+                provider,
+                git_source,
+                repository_entry,
+                index,
+                len(repositories),
+                logger,
+                sensitive_values,
+            )
+            apply_repository_result(result)
 
     if resume_enabled and stats["failed"] == 0:
         try:
@@ -1280,6 +1510,8 @@ def main(argv=None):
 
     if args.repo_retries < 0:
         parser.error("--repo-retries must be zero or a positive integer.")
+    if args.workers < 1:
+        parser.error("--workers must be a positive integer.")
     if args.retain_days is not None and args.retain_days < 0:
         parser.error("--retain-days must be zero or a positive integer.")
     if args.retain_count is not None and args.retain_count < 0:
@@ -1301,6 +1533,7 @@ def main(argv=None):
         output_dir=os.path.expanduser(args.output_dir),
         snapshot_format=args.snapshot_format,
         snapshot_dir=os.path.expanduser(args.snapshot_dir),
+        summary_file=args.summary_file,
         dry_run=args.dry_run,
         include_archived=args.include_archived,
         ssh_key_path=args.ssh_key_path,
@@ -1311,15 +1544,18 @@ def main(argv=None):
         branch_patterns=args.branch_patterns,
         default_branch_only=args.default_branch_only,
         repo_retries=args.repo_retries,
+        workers=args.workers,
         retain_days=args.retain_days,
         retain_count=args.retain_count,
         force_lock=args.force_lock,
         resume=args.resume,
         log_format=args.log_format,
     )
+    compatibility_report = emit_runtime_compatibility(logger)
 
     lock_info = None
     exit_code = 1
+    sensitive_values = []
     try:
         lock_info = acquire_run_lock(
             output_dir=args.output_dir,
@@ -1337,6 +1573,7 @@ def main(argv=None):
             replaced_forced=lock_info["replaced_forced"],
         )
         token = resolve_token(args.token_env, logger=logger)
+        sensitive_values.append(token)
         provider = create_provider(args, token)
         if not provider.auth_ok():
             message = provider.auth_error or "Unknown authentication error."
@@ -1354,7 +1591,13 @@ def main(argv=None):
             ) from exc
 
         git_source = git_source_class(key_path=args.ssh_key_path)
-        stats = run_backup(args, provider, git_source, logger=logger)
+        stats = run_backup(
+            args,
+            provider,
+            git_source,
+            logger=logger,
+            sensitive_values=sensitive_values,
+        )
         exit_code = 0 if stats["failed"] == 0 else 2
         logger.event(
             "run.finish",
@@ -1366,23 +1609,52 @@ def main(argv=None):
             skipped=stats["skipped"],
             failed=stats["failed"],
             failure_types=stats["failure_types"],
+            mode_duration_ms=stats["mode_duration_ms"],
         )
+        summary_payload = {
+            "provider": args.provider,
+            "mode": args.mode,
+            "processed": stats["processed"],
+            "succeeded": stats["succeeded"],
+            "skipped": stats["skipped"],
+            "failed": stats["failed"],
+            "failure_types": stats["failure_types"],
+            "mode_duration_ms": stats["mode_duration_ms"],
+            "exit_code": exit_code,
+            "compatibility": compatibility_report,
+        }
+        if args.summary_file:
+            try:
+                summary_path = write_summary_report(args.summary_file, summary_payload)
+            except (OSError, TypeError, ValueError) as exc:
+                raise ProviderConfigurationError(
+                    f"Failed writing summary file '{args.summary_file}': {exc}"
+                ) from exc
+            logger.event(
+                "run.summary.write",
+                outcome="success",
+                provider=args.provider,
+                mode=args.mode,
+                path=summary_path,
+            )
         emit_text(
             logger,
             "All repos finished! "
             f"processed={stats['processed']}, succeeded={stats['succeeded']}, "
             f"skipped={stats['skipped']}, failed={stats['failed']}, "
-            f"failure_types={format_failure_counters(stats['failure_types'])}"
+            f"failure_types={format_failure_counters(stats['failure_types'])}, "
+            f"mode_duration_ms={stats['mode_duration_ms']}"
         )
     except RepoDownloaderError as exc:
+        sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)
         logger.event(
             "run.finish",
             outcome="failed",
             level="ERROR",
             provider=args.provider,
-            error=str(exc),
+            error=sanitized_error,
         )
-        emit_text(logger, f"[ERROR] {exc}")
+        emit_text(logger, f"[ERROR] {sanitized_error}")
         exit_code = 1
     except KeyboardInterrupt:
         logger.event("run.finish", outcome="interrupted", level="WARNING", provider=args.provider)
@@ -1400,15 +1672,16 @@ def main(argv=None):
                     lock_path=lock_path,
                 )
             except RunLockError as exc:
+                sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)
                 logger.event(
                     "run.lock.release",
                     outcome="failed",
                     level="ERROR",
                     provider=args.provider,
                     lock_path=lock_path,
-                    error=str(exc),
+                    error=sanitized_error,
                 )
-                emit_text(logger, f"[ERROR] {exc}")
+                emit_text(logger, f"[ERROR] {sanitized_error}")
                 if exit_code == 0:
                     exit_code = 1
         logger.close()

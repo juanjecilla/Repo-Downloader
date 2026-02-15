@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+
 import argparse
 import importlib.util
 import io
@@ -13,6 +15,7 @@ import downloader
 from utils.errors import (
     AuthenticationError,
     ProviderConfigurationError,
+    REDACTED_TEXT,
     RepositorySyncError,
     RunLockError,
 )
@@ -117,6 +120,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "json",
                 "--log-file",
                 "./logs/run.log",
+                "--summary-file",
+                "./reports/summary.json",
                 "--include",
                 "acme/*",
                 "--exclude",
@@ -128,6 +133,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 "--default-branch-only",
                 "--repo-retries",
                 "2",
+                "--workers",
+                "3",
                 "--force-lock",
                 "--resume",
             ]
@@ -143,12 +150,14 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(10, args.retain_count)
         self.assertEqual("json", args.log_format)
         self.assertEqual("./logs/run.log", args.log_file)
+        self.assertEqual("./reports/summary.json", args.summary_file)
         self.assertEqual(["acme/*"], args.include)
         self.assertEqual(["acme/private-*"], args.exclude)
         self.assertEqual(["main"], args.branch)
         self.assertEqual(["release/*"], args.branch_pattern)
         self.assertTrue(args.default_branch_only)
         self.assertEqual(2, args.repo_retries)
+        self.assertEqual(3, args.workers)
         self.assertTrue(args.force_lock)
         self.assertTrue(args.resume)
 
@@ -302,6 +311,9 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertIn("sync.mirror.clone", logged_actions)
         self.assertIn("sync.working.clone", logged_actions)
         self.assertIn("repository.finish", logged_actions)
+        self.assertIn("mode_duration_ms", stats)
+        self.assertIn("mirror", stats["mode_duration_ms"])
+        self.assertIn("working", stats["mode_duration_ms"])
 
     def test_run_backup_include_filter_skips_non_matching_repo(self):
         args = SimpleNamespace(
@@ -433,11 +445,13 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 ]
                 self.assertEqual(1, len(mirror_events))
                 self.assertEqual(1, len(working_events))
+                mirror_path = os.path.normpath(mirror_events[0]["path"])
+                working_path = os.path.normpath(working_events[0]["path"])
                 self.assertTrue(
-                    mirror_events[0]["path"].endswith(f"/{provider_name}/acme/example.git")
+                    mirror_path.endswith(os.path.join(provider_name, "acme", "example.git"))
                 )
                 self.assertTrue(
-                    working_events[0]["path"].endswith(f"/{provider_name}/acme/example")
+                    working_path.endswith(os.path.join(provider_name, "acme", "example"))
                 )
 
     def test_run_backup_filter_parity_across_providers(self):
@@ -471,6 +485,41 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                 self.assertEqual(2, stats["processed"])
                 self.assertEqual(1, stats["succeeded"])
                 self.assertEqual(1, stats["skipped"])
+
+    def test_run_backup_workers_parallelizes_repositories(self):
+        args = SimpleNamespace(
+            workspace=None,
+            role="member",
+            include_archived=False,
+            output_dir="./backups-test",
+            provider="bitbucket",
+            mode="mirror",
+            dry_run=True,
+            include=[],
+            exclude=[],
+            branch_names=[],
+            branch_patterns=[],
+            default_branch_only=False,
+            repo_retries=0,
+            workers=2,
+        )
+        provider = _FakeProvider(
+            repositories=[
+                {"repository": {"full_name": "acme/one"}},
+                {"repository": {"full_name": "acme/two"}},
+            ]
+        )
+        git_source = _FakeGitSource()
+        logger = _MemoryLogger()
+
+        stats = downloader.run_backup(args, provider, git_source, logger=logger)
+
+        self.assertEqual(2, stats["processed"])
+        self.assertEqual(2, stats["succeeded"])
+        concurrent_events = [
+            event for event in logger.events if event["action"] == "repositories.concurrent"
+        ]
+        self.assertEqual(1, len(concurrent_events))
 
     def test_run_backup_dry_run_plans_snapshot_export(self):
         args = SimpleNamespace(
@@ -718,6 +767,16 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(REDACTED_VALUE, parsed["nested"]["api_token"])
         self.assertNotIn("super-secret-token", buffer.getvalue())
 
+    def test_sanitize_error_text_redacts_token_content(self):
+        secret_value = "super-secret-token"
+        sanitized = downloader.sanitize_error_text(
+            f"authentication failed token={secret_value}",
+            sensitive_values=[secret_value],
+        )
+
+        self.assertNotIn(secret_value, sanitized)
+        self.assertIn(REDACTED_TEXT, sanitized)
+
     def test_null_logger_default_paths_do_not_raise(self):
         token = "from-prompt"
         with patch.dict("os.environ", {}, clear=True):
@@ -872,6 +931,40 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
 
         self.assertEqual(1, exit_code)
 
+    def test_main_redacts_secret_in_error_output(self):
+        secret_value = "my-secret-token"
+        with patch(
+            "downloader.acquire_run_lock",
+            return_value={
+                "path": "/tmp/repo-downloader-test.lock",
+                "replaced_stale": False,
+                "replaced_forced": False,
+            },
+        ):
+            with patch("downloader.release_run_lock"):
+                with patch("downloader.resolve_token", return_value=secret_value):
+                    with patch(
+                        "downloader.create_provider",
+                        side_effect=ProviderConfigurationError(
+                            f"invalid credentials token={secret_value}"
+                        ),
+                    ):
+                        buffer = io.StringIO()
+                        with redirect_stdout(buffer):
+                            exit_code = downloader.main(
+                                [
+                                    "--provider",
+                                    "bitbucket",
+                                    "--username",
+                                    "my-user",
+                                ]
+                            )
+
+        rendered = buffer.getvalue()
+        self.assertEqual(1, exit_code)
+        self.assertNotIn(secret_value, rendered)
+        self.assertIn(REDACTED_TEXT, rendered)
+
     def test_main_releases_lock_when_run_finishes(self):
         class _FakeProviderWithAuth:
             def auth_ok(self):
@@ -892,6 +985,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
             "skipped": 0,
             "failed": 0,
             "failure_types": downloader.make_failure_counters(),
+            "mode_duration_ms": {"mirror": 0, "working": 0},
         }
         with patch(
             "downloader.acquire_run_lock",
@@ -907,11 +1001,11 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                         "downloader.create_provider",
                         return_value=_FakeProviderWithAuth(),
                     ):
-                        with patch(
-                            "downloader.importlib.import_module",
-                            return_value=_FakeGitModule(),
-                        ):
-                            with patch("downloader.run_backup", return_value=stats):
+                        with patch("downloader.run_backup", return_value=stats):
+                            with patch(
+                                "downloader.importlib.import_module",
+                                return_value=_FakeGitModule(),
+                            ):
                                 exit_code = downloader.main(
                                     [
                                         "--provider",
@@ -953,6 +1047,84 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(1, exit_code)
         self.assertIn("--backup-path is required", buffer.getvalue())
 
+    def test_main_summary_includes_compatibility_report(self):
+        class _FakeProviderWithAuth:
+            def auth_ok(self):
+                return True
+
+            @property
+            def auth_error(self):
+                return None
+
+        class _FakeGitModule:
+            class GitSource:
+                def __init__(self, key_path):
+                    self.key_path = key_path
+
+        stats = {
+            "processed": 1,
+            "succeeded": 1,
+            "skipped": 0,
+            "failed": 0,
+            "failure_types": downloader.make_failure_counters(),
+            "mode_duration_ms": {"mirror": 0, "working": 0},
+        }
+        compatibility_report = {
+            "python_version": "3.11.8",
+            "minimum_python_version": "3.8",
+            "python_supported": True,
+            "platform": "linux",
+            "supported_platforms": ["linux", "macos", "windows"],
+            "platform_supported": True,
+            "git_version_raw": "git version 2.44.0",
+            "git_version": "2.44.0",
+            "minimum_git_version": "2.30.0",
+            "git_supported": True,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            summary_path = os.path.join(tmp_dir, "summary.json")
+            with patch(
+                "downloader.acquire_run_lock",
+                return_value={
+                    "path": os.path.join(tmp_dir, "repo-downloader.lock"),
+                    "replaced_stale": False,
+                    "replaced_forced": False,
+                },
+            ):
+                with patch("downloader.release_run_lock"):
+                    with patch("downloader.resolve_token", return_value="token-value"):
+                        with patch(
+                            "downloader.create_provider",
+                            return_value=_FakeProviderWithAuth(),
+                        ):
+                            with patch("downloader.run_backup", return_value=stats):
+                                with patch(
+                                    "downloader.build_runtime_compatibility_report",
+                                    return_value=compatibility_report,
+                                ):
+                                    with patch(
+                                        "downloader.importlib.import_module",
+                                        return_value=_FakeGitModule(),
+                                    ):
+                                        exit_code = downloader.main(
+                                            [
+                                                "--provider",
+                                                "bitbucket",
+                                                "--username",
+                                                "my-user",
+                                                "--token-env",
+                                                "BB_TOKEN",
+                                                "--summary-file",
+                                                summary_path,
+                                            ]
+                                        )
+
+            self.assertEqual(0, exit_code)
+            with open(summary_path, "r", encoding="utf-8") as summary_file:
+                payload = json.load(summary_file)
+            self.assertEqual(compatibility_report, payload["compatibility"])
+
     def test_perform_restore_validation_checks_clone_and_refs(self):
         class _FakeRepoObject:
             heads = [SimpleNamespace(name="main")]
@@ -987,6 +1159,25 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
 
         self.assertEqual(1, result["branch_count"])
         self.assertEqual(1, result["remote_ref_count"])
+
+    def test_write_summary_report_creates_json_file(self):
+        payload = {
+            "provider": "bitbucket",
+            "mode": "both",
+            "processed": 2,
+            "succeeded": 2,
+            "failed": 0,
+            "failure_types": downloader.make_failure_counters(),
+            "mode_duration_ms": {"mirror": 15, "working": 20},
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            summary_path = os.path.join(tmp_dir, "summary.json")
+            written_path = downloader.write_summary_report(summary_path, payload)
+            with open(written_path, "r", encoding="utf-8") as summary_file:
+                loaded = json.load(summary_file)
+
+        self.assertEqual(payload["provider"], loaded["provider"])
+        self.assertEqual(payload["mode_duration_ms"], loaded["mode_duration_ms"])
 
 
 if __name__ == "__main__":

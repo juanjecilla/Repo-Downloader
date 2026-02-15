@@ -1,28 +1,63 @@
-name: Pylint
+name: CI
 
-on: [push]
+on:
+  push:
+  pull_request:
+    branches:
+      - develop
+      - main
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  test-matrix:
+    name: Tests (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.9"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.11"
+          - os: windows-latest
+            python-version: "3.11"
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install .
-        pip install pylint
-    - name: Run unit tests
-      run: |
-        python -m unittest discover -s tests -p "test_*.py"
-    - name: Analysing the code with pylint
-      run: |
-        pylint $(git ls-files '*.py')
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check git version
+        run: git --version
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install .
+      - name: Validate compatibility baseline
+        run: python -c "from utils.compatibility import build_runtime_compatibility_report; report = build_runtime_compatibility_report(); assert report['python_supported'], report; assert report['git_supported'], report; print(report)"
+      - name: Run unit tests
+        shell: bash
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: CLI smoke test
+        run: python downloader.py --help
+
+  lint:
+    name: Lint (ubuntu-latest, py3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install .
+          pip install pylint
+      - name: Analysing the code with pylint
+        run: pylint $(git ls-files '*.py')

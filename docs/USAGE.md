@@ -30,6 +30,25 @@ docker build -t repo-downloader:local .
 docker run --rm repo-downloader:local --help
 ```
 
+## Compatibility Matrix
+| Component | Support Level | Versions / Notes |
+|---|---|---|
+| Operating system | CI-tested | Ubuntu (`ubuntu-latest`), macOS (`macos-latest`), Windows (`windows-latest`) |
+| Python runtime | Supported | Minimum `3.8` |
+| Python runtime | CI-tested | `3.9`, `3.11`, `3.12` |
+| Git CLI | Supported | Minimum `2.30.0` available in `PATH` |
+| Providers | Supported | Bitbucket, GitHub, GitLab |
+
+Runtime compatibility checks:
+- Each backup run emits a `runtime.compatibility` structured event.
+- The CLI prints warnings when runtime Python/Git/platform are below supported minimums
+  or outside the validated matrix.
+- To verify your environment quickly:
+  ```bash
+  python3 downloader.py --help
+  git --version
+  ```
+
 ## Authentication
 Repo-Downloader uses a token/app-password value for API authentication.
 
@@ -77,12 +96,14 @@ Commands:
 - `--token-env`: Environment variable containing token/app-password.
 - `--log-format`: Log format (`text` or `json`), default `text`.
 - `--log-file`: Optional file path where logs are written in the selected format.
+- `--summary-file`: Optional JSON file path for run health/metrics summary export.
 - `--include`: Include repository full-name glob patterns. Repeat or comma-separate values.
 - `--exclude`: Exclude repository full-name glob patterns. Repeat or comma-separate values.
 - `--branch`: In working mode, include only specific branch names. Repeat or comma-separate values.
 - `--branch-pattern`: In working mode, include branches matching glob patterns.
 - `--default-branch-only`: In working mode, checkout only the repository default branch.
 - `--repo-retries`: Additional retries per repository after a failure, default `0`.
+- `--workers`: Number of concurrent repository workers, default `1`.
 - `--force-lock`: Replace an active/stale run lock for the selected provider/output root.
 - `--retain-days`: Delete snapshot/working artifacts older than this many days.
 - `--retain-count`: Keep only the most recent N snapshot/working artifacts per repository.
@@ -188,6 +209,21 @@ python3 downloader.py \
   --log-file ./logs/backup-run.jsonl
 ```
 
+### Export run summary metrics
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --summary-file ./reports/backup-summary.json
+```
+
+Summary payload includes:
+- repository counters (`processed`, `succeeded`, `skipped`, `failed`)
+- failure-type counters (`api`, `auth`, `clone`, `fetch`, `checkout`, `other`)
+- per-mode duration totals (`mode_duration_ms`)
+
 ### Filter repositories with include/exclude patterns
 ```bash
 python3 downloader.py \
@@ -234,6 +270,20 @@ Retry semantics:
 - The command attempts each repository once, plus `--repo-retries` additional attempts.
 - Failure classification counters are included in the run summary (`api`, `auth`, `clone`,
   `fetch`, `checkout`, `other`).
+
+### Enable parallel repository sync workers
+```bash
+python3 downloader.py \
+  --provider bitbucket \
+  --username my-user \
+  --token-env BITBUCKET_APP_PASSWORD \
+  --mode both \
+  --workers 4
+```
+
+Worker semantics:
+- `--workers 1` is sequential execution (default).
+- When `--workers > 1`, repository work runs concurrently with deterministic grouped logs.
 
 ### Export mirror snapshots
 ```bash
