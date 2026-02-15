@@ -227,7 +227,7 @@ Status values:
 
 ### F016 pipx / PyInstaller Packaging
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: ship easy installation targets.
 - Files:
   - `README.md`
@@ -239,7 +239,7 @@ Status values:
 
 ### F017 Containerized Runtime
 - Priority: `later`
-- Status: `later`
+- Status: `done`
 - Goal: provide Docker image for isolated execution.
 - Files:
   - `Dockerfile` (new)
