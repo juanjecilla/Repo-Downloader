@@ -14,6 +14,11 @@ except ModuleNotFoundError:
 
 @unittest.skipUnless(GITPYTHON_AVAILABLE, "GitPython is required for git integration tests")
 class TestGitSourceIntegration(unittest.TestCase):
+    def _close_repo(self, repo):
+        close = getattr(repo, "close", None)
+        if callable(close):
+            close()
+
     def _configure_user(self, repo):
         with repo.config_writer() as config:
             config.set_value("user", "name", "Repo Downloader Test")
@@ -42,36 +47,57 @@ class TestGitSourceIntegration(unittest.TestCase):
     def test_mirror_clone_and_update_from_local_remote(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             source_repo, remote_path, branch = self._build_remote_with_source(tmp_dir)
+            mirror_repo = None
+            remote_repo = None
+            mirror_verify_repo = None
 
-            git_source = GitSource()
-            mirror_path = os.path.join(tmp_dir, "mirror.git")
-            mirror_repo = git_source.clone_repo(remote_path, mirror_path, mirror=True)
-            self.assertTrue(mirror_repo.bare)
+            try:
+                git_source = GitSource()
+                mirror_path = os.path.join(tmp_dir, "mirror.git")
+                mirror_repo = git_source.clone_repo(remote_path, mirror_path, mirror=True)
+                self.assertTrue(mirror_repo.bare)
 
-            self._write_and_commit(source_repo, "README.md", "v2\n", "second commit")
-            source_repo.git.push("origin", branch)
+                self._write_and_commit(source_repo, "README.md", "v2\n", "second commit")
+                source_repo.git.push("origin", branch)
 
-            git_source.update_mirror(mirror_path)
+                git_source.update_mirror(mirror_path)
 
-            remote_sha = Repo(remote_path).git.rev_parse(branch)
-            mirror_sha = Repo(mirror_path).git.rev_parse(branch)
-            self.assertEqual(remote_sha, mirror_sha)
+                remote_repo = Repo(remote_path)
+                mirror_verify_repo = Repo(mirror_path)
+                remote_sha = remote_repo.git.rev_parse(branch)
+                mirror_sha = mirror_verify_repo.git.rev_parse(branch)
+                self.assertEqual(remote_sha, mirror_sha)
+            finally:
+                self._close_repo(source_repo)
+                self._close_repo(mirror_repo)
+                self._close_repo(remote_repo)
+                self._close_repo(mirror_verify_repo)
 
     def test_working_clone_fetch_updates_origin_tracking_branch(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             source_repo, remote_path, branch = self._build_remote_with_source(tmp_dir)
+            working_repo = None
+            updated_repo = None
+            remote_repo = None
 
-            git_source = GitSource()
-            working_path = os.path.join(tmp_dir, "working")
-            git_source.clone_repo(remote_path, working_path, mirror=False)
+            try:
+                git_source = GitSource()
+                working_path = os.path.join(tmp_dir, "working")
+                working_repo = git_source.clone_repo(remote_path, working_path, mirror=False)
 
-            self._write_and_commit(source_repo, "README.md", "v2\n", "second commit")
-            source_repo.git.push("origin", branch)
+                self._write_and_commit(source_repo, "README.md", "v2\n", "second commit")
+                source_repo.git.push("origin", branch)
 
-            updated_repo = git_source.fetch_working_copy(working_path)
-            remote_sha = Repo(remote_path).git.rev_parse(branch)
-            tracking_sha = updated_repo.git.rev_parse(f"origin/{branch}")
-            self.assertEqual(remote_sha, tracking_sha)
+                updated_repo = git_source.fetch_working_copy(working_path)
+                remote_repo = Repo(remote_path)
+                remote_sha = remote_repo.git.rev_parse(branch)
+                tracking_sha = updated_repo.git.rev_parse(f"origin/{branch}")
+                self.assertEqual(remote_sha, tracking_sha)
+            finally:
+                self._close_repo(source_repo)
+                self._close_repo(working_repo)
+                self._close_repo(updated_repo)
+                self._close_repo(remote_repo)
 
 
 if __name__ == "__main__":

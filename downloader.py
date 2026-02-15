@@ -12,6 +12,10 @@ import sys
 import time
 
 from utils import url_utils
+from utils.compatibility import (
+    SUPPORTED_PLATFORM_LABELS,
+    build_runtime_compatibility_report,
+)
 from utils.errors import (
     AuthenticationError,
     ProviderConfigurationError,
@@ -463,6 +467,57 @@ def format_failure_counters(counters):
 
 def sanitize_error_text(error, sensitive_values=None):
     return redact_sensitive_text(error, sensitive_values=sensitive_values)
+
+
+def emit_runtime_compatibility(logger):
+    report = build_runtime_compatibility_report()
+    logger.event(
+        "runtime.compatibility",
+        outcome="info",
+        python_version=report["python_version"],
+        minimum_python_version=report["minimum_python_version"],
+        python_supported=report["python_supported"],
+        platform=report["platform"],
+        platform_supported=report["platform_supported"],
+        git_version=report["git_version"],
+        minimum_git_version=report["minimum_git_version"],
+        git_supported=report["git_supported"],
+    )
+
+    if not report["python_supported"]:
+        emit_text(
+            logger,
+            (
+                "[WARN] Python runtime is below supported minimum "
+                f"({report['python_version']} < {report['minimum_python_version']})."
+            ),
+        )
+
+    if not report["platform_supported"]:
+        supported_platforms = ", ".join(SUPPORTED_PLATFORM_LABELS)
+        emit_text(
+            logger,
+            (
+                "[WARN] Runtime platform is outside validated compatibility matrix "
+                f"({report['platform']}; supported: {supported_platforms})."
+            ),
+        )
+
+    if report["git_version"] is None:
+        emit_text(
+            logger,
+            "[WARN] Could not detect git version. Ensure git is installed and available in PATH.",
+        )
+    elif not report["git_supported"]:
+        emit_text(
+            logger,
+            (
+                "[WARN] Git runtime is below supported minimum "
+                f"({report['git_version']} < {report['minimum_git_version']})."
+            ),
+        )
+
+    return report
 
 
 def get_default_branch_name(extended_repository):
@@ -1496,6 +1551,7 @@ def main(argv=None):
         resume=args.resume,
         log_format=args.log_format,
     )
+    compatibility_report = emit_runtime_compatibility(logger)
 
     lock_info = None
     exit_code = 1
@@ -1565,6 +1621,7 @@ def main(argv=None):
             "failure_types": stats["failure_types"],
             "mode_duration_ms": stats["mode_duration_ms"],
             "exit_code": exit_code,
+            "compatibility": compatibility_report,
         }
         if args.summary_file:
             try:

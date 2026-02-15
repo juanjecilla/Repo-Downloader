@@ -30,6 +30,25 @@ docker build -t repo-downloader:local .
 docker run --rm repo-downloader:local --help
 ```
 
+## Compatibility Matrix
+| Component | Support Level | Versions / Notes |
+|---|---|---|
+| Operating system | CI-tested | Ubuntu (`ubuntu-latest`), macOS (`macos-latest`), Windows (`windows-latest`) |
+| Python runtime | Supported | Minimum `3.8` |
+| Python runtime | CI-tested | `3.9`, `3.11`, `3.12` |
+| Git CLI | Supported | Minimum `2.30.0` available in `PATH` |
+| Providers | Supported | Bitbucket, GitHub, GitLab |
+
+Runtime compatibility checks:
+- Each backup run emits a `runtime.compatibility` structured event.
+- The CLI prints warnings when runtime Python/Git/platform are below supported minimums
+  or outside the validated matrix.
+- To verify your environment quickly:
+  ```bash
+  python3 downloader.py --help
+  git --version
+  ```
+
 ## Authentication
 Repo-Downloader uses a token/app-password value for API authentication.
 

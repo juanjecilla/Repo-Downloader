@@ -26,6 +26,19 @@ Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bi
 - JSON summary export (`--summary-file`) with health metrics and duration counters.
 - Secret redaction hardening for error/log output across token/password/secret patterns.
 
+## Compatibility Matrix
+| Component | Support Level | Versions / Notes |
+|---|---|---|
+| Operating system | CI-tested | Ubuntu (`ubuntu-latest`), macOS (`macos-latest`), Windows (`windows-latest`) |
+| Python runtime | Supported | Minimum `3.8` |
+| Python runtime | CI-tested | `3.9`, `3.11`, `3.12` |
+| Git CLI | Supported | Minimum `2.30.0` in `PATH` |
+| Providers | Supported | Bitbucket, GitHub, GitLab |
+
+Runtime checks:
+- `repo-downloader` emits a `runtime.compatibility` structured log event at startup.
+- Warnings are emitted when Python/Git/platform are outside the validated matrix.
+
 ## Quick Start
 1. Install with `pipx` (recommended packaged mode):
    ```bash
