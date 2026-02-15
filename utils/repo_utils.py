@@ -206,6 +206,43 @@ def delete_artifact_path(path: str) -> None:
     os.remove(path)
 
 
+def build_checkpoint_path(output_dir: str, provider: str) -> str:
+    output_root = os.path.expanduser(output_dir)
+    return os.path.join(output_root, provider, ".repo-downloader-checkpoint.json")
+
+
+def load_checkpoint(checkpoint_path: str) -> Dict:
+    if not os.path.isfile(checkpoint_path):
+        return {}
+
+    try:
+        with open(checkpoint_path, "r", encoding="utf-8") as checkpoint_file:
+            payload = json.load(checkpoint_file)
+            if isinstance(payload, dict):
+                return payload
+    except (OSError, ValueError, TypeError):
+        return {}
+    return {}
+
+
+def save_checkpoint(checkpoint_path: str, payload: Dict) -> None:
+    checkpoint_dir = os.path.dirname(checkpoint_path)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    temp_path = f"{checkpoint_path}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as checkpoint_file:
+        json.dump(payload, checkpoint_file, sort_keys=True)
+        checkpoint_file.write("\n")
+    os.replace(temp_path, checkpoint_path)
+
+
+def remove_checkpoint(checkpoint_path: str) -> None:
+    try:
+        os.remove(checkpoint_path)
+    except FileNotFoundError:
+        return
+
+
 def normalize_repo_patterns(raw_patterns: Optional[List[str]]) -> List[str]:
     """Normalize include/exclude patterns from CLI values."""
     normalized: List[str] = []

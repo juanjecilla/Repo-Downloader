@@ -189,7 +189,7 @@ Status values:
 
 ### F013 Resumable Runs
 - Priority: `planned`
-- Status: `planned`
+- Status: `done`
 - Goal: persist run checkpoints and resume after interruption.
 - Files:
   - `downloader.py`
