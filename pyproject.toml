@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68", "wheel", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "repo-downloader"
-version = "0.1.0"
+dynamic = ["version"]
 description = "CLI tool for backing up remote repositories."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -13,6 +13,9 @@ dependencies = [
   "requests",
   "PyYAML",
   "tomli; python_version < '3.11'",
+  "keyring",
+  "platformdirs",
+  "sentry-sdk",
 ]
 
 [project.scripts]
@@ -20,3 +23,12 @@ repo-downloader = "downloader:main"
 
 [tool.setuptools]
 py-modules = ["downloader"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["data*", "utils*"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
+version_scheme = "no-guess-dev"
+local_scheme = "no-local-version"
