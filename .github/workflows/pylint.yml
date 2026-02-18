@@ -90,6 +90,7 @@ jobs:
           coverage run -m unittest discover -s tests -p "test_*.py"
           coverage xml -o coverage.xml
       - name: Upload coverage to Codecov
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.xml
