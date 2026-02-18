@@ -66,6 +66,8 @@ jobs:
       - name: Smoke test packaged CLI
         run: |
           repo-downloader --help
+          mkdir -p ./backups/github/example
+          touch ./backups/github/example/repo.git
           repo-downloader list-backups --output-dir ./backups
 
   coverage:
@@ -91,6 +93,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
 
   lint:

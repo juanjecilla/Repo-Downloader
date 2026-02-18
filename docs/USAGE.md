@@ -25,6 +25,7 @@ python3 -m pip install --upgrade repo-downloader
 ```
 
 ## Compatibility Matrix
+
 | Component | Support Level | Versions / Notes |
 |---|---|---|
 | Operating system | CI-tested | Ubuntu (`ubuntu-latest`), macOS (`macos-latest`), Windows (`windows-latest`) |
@@ -113,6 +114,7 @@ Commands:
 - `--sentry-release`
 
 ## Provider Behavior Matrix
+
 | Capability | Bitbucket | GitHub | GitLab | Notes |
 |---|---|---|---|---|
 | Runtime provider support | Yes | Yes | Yes | All providers implement contract methods |

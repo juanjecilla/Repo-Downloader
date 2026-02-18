@@ -507,14 +507,15 @@ def resolve_token(token_env, provider=None, auth_profile="default", logger=None)
             )
             return token
         fallback_msg = (
-            f"Environment variable '{token_env}' was not set. Falling back to prompt."
+            f"Environment variable '{token_env}' was not set. "
+            "Falling back to auth profile or prompt."
         )
         logger.event(
             "auth.token.source",
             outcome="fallback",
             level="WARNING",
             token_env=token_env,
-            source="prompt",
+            source="fallback",
             message=fallback_msg,
         )
         emit_text(logger, fallback_msg)
@@ -1768,6 +1769,11 @@ def main(argv=None):
         parser.error(
             "auth command requires provider positional argument "
             "(bitbucket|github|gitlab)."
+        )
+    if args.command != "auth" and args.auth_provider:
+        parser.error(
+            "Positional provider argument is only valid for the auth command. "
+            "Use --provider for backup/list-backups/validate-restore commands."
         )
 
     if args.command in ("auth", "list-backups", "validate-restore"):

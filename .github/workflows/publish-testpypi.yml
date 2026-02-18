@@ -53,6 +53,16 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           python -m pip install --upgrade pip
-          pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "repo-downloader==${version}"
+          for attempt in {1..5}; do
+            if pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "repo-downloader==${version}"; then
+              break
+            fi
+            if [ "${attempt}" -eq 5 ]; then
+              echo "Package not available on TestPyPI after 5 attempts."
+              exit 1
+            fi
+            echo "Package not available yet; retrying in 15s (attempt ${attempt}/5)..."
+            sleep 15
+          done
           repo-downloader --help
           repo-downloader list-backups --output-dir ./backups

@@ -111,9 +111,9 @@ Roadmap status:
 Goal: make release operations and authentication production-ready with stronger telemetry.
 
 1. Add production PyPI release workflow and SemVer tagging (`F023`).
-2. Add secure auth profiles and `auth` command for all providers (`F024`).
-3. Add Codecov patch coverage gate (`F025`).
-4. Add Sentry opt-in error monitoring (`F026`).
+2. Implement secure auth profiles and `auth` command for all providers (`F024`).
+3. Enforce Codecov patch coverage gate (`F025`).
+4. Integrate Sentry opt-in error monitoring (`F026`).
 
 Definition of done:
 - Public PyPI release can be executed from `main` using release workflows.

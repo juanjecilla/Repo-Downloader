@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -195,6 +195,11 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual("work", args.profile)
         self.assertTrue(args.status)
 
+    def test_main_rejects_positional_provider_for_non_auth_commands(self):
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                downloader.main(["backup", "github"])
+
     def test_apply_config_defaults_applies_when_cli_uses_defaults(self):
         parser = downloader.build_parser()
         args = parser.parse_args([])
@@ -328,7 +333,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
 
     def test_run_auth_command_status_uses_profile_credential(self):
         class _ProviderOk:
-            current_user = {"login": "octocat"}
+            def __init__(self):
+                self.current_user = {"login": "octocat"}
 
             @staticmethod
             def auth_ok():
@@ -375,7 +381,8 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
 
     def test_run_auth_command_setup_persists_profile_and_secret(self):
         class _ProviderOk:
-            current_user = {"login": "octocat"}
+            def __init__(self):
+                self.current_user = {"login": "octocat"}
 
             @staticmethod
             def auth_ok():

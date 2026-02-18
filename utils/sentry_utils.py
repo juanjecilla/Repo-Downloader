@@ -64,13 +64,25 @@ def initialize_sentry(args=None, logger=None):
             )
         return {"enabled": False, **settings}
 
-    sentry_sdk.init(
-        dsn=dsn,
-        environment=settings["environment"],
-        release=settings["release"],
-        traces_sample_rate=0.0,
-        before_send=_before_send,
-    )
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=settings["environment"],
+            release=settings["release"],
+            traces_sample_rate=0.0,
+            before_send=_before_send,
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        _SENTRY_STATE["enabled"] = False
+        if logger:
+            logger.event(
+                "sentry.init",
+                outcome="failure",
+                level="WARNING",
+                source="init_error",
+                message=str(exc),
+            )
+        return {"enabled": False, **settings}
     _SENTRY_STATE["enabled"] = True
     if logger:
         logger.event("sentry.init", outcome="success", source="environment")

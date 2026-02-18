@@ -22,6 +22,28 @@ class _FakeSentrySDK:
         self.captured.append(str(exc))
 
 
+class _RaisingSentrySDK:
+    @staticmethod
+    def init(**_kwargs):
+        raise ValueError("invalid DSN")
+
+
+class _MemoryLogger:
+    def __init__(self):
+        self.events = []
+
+    def event(self, action, outcome="info", level="INFO", message=None, **fields):
+        event = {
+            "action": action,
+            "outcome": outcome,
+            "level": level,
+            "message": message,
+        }
+        event.update(fields)
+        self.events.append(event)
+        return event
+
+
 class TestSentryUtils(unittest.TestCase):
     def test_resolve_sentry_settings_from_environment(self):
         with patch.dict(
@@ -79,6 +101,17 @@ class TestSentryUtils(unittest.TestCase):
 
         self.assertNotIn("secret-token", redacted["message"])
         self.assertNotIn("abcdef", redacted["exception"]["values"][0]["value"])
+
+    def test_initialize_sentry_handles_invalid_dsn(self):
+        logger = _MemoryLogger()
+        with patch.dict(os.environ, {"REPO_DOWNLOADER_SENTRY_DSN": "bad-dsn"}, clear=True):
+            with patch.dict(sys.modules, {"sentry_sdk": _RaisingSentrySDK()}):
+                result = sentry_utils.initialize_sentry(args=None, logger=logger)
+
+        self.assertFalse(result["enabled"])
+        self.assertEqual("failure", logger.events[0]["outcome"])
+        self.assertEqual("init_error", logger.events[0]["source"])
+        self.assertIn("invalid DSN", logger.events[0]["message"])
 
 
 if __name__ == "__main__":

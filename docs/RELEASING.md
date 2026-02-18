@@ -45,19 +45,19 @@ No long-lived PyPI API token should be stored when OIDC is configured.
 ## Release Checklist
 
 Pre-release:
-1. Confirm `main` includes intended changes.
-2. Confirm CI on `main` is green.
-3. Confirm docs are up to date.
-4. Confirm workflows and environment protections are active.
+1. Ensure `main` includes intended changes.
+2. Ensure CI on `main` is green.
+3. Review docs for release readiness.
+4. Check workflows and environment protections are active.
 
 Release:
 1. Trigger `release-tag.yml` with desired bump.
-2. Verify tag and GitHub Release creation.
-3. Verify TestPyPI publish and smoke install succeed.
-4. Verify PyPI publish workflow succeeds.
+2. Confirm tag and GitHub Release creation.
+3. Confirm TestPyPI publish and smoke install succeed.
+4. Confirm PyPI publish workflow succeeds.
 
 Post-release:
-1. Verify `pip install repo-downloader` resolves new version.
+1. Confirm `pip install repo-downloader` resolves new version.
 2. Run CLI smoke check:
    - `repo-downloader --help`
    - `repo-downloader list-backups --output-dir ./backups`
