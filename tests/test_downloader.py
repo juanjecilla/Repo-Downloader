@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -179,6 +179,27 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual("./backups/bitbucket/acme/example.git", validate_args.backup_path)
         self.assertEqual("./restore-test", validate_args.restore_dir)
 
+    def test_parser_accepts_auth_command(self):
+        parser = downloader.build_parser()
+        args = parser.parse_args(
+            [
+                "auth",
+                "github",
+                "--profile",
+                "work",
+                "--status",
+            ]
+        )
+        self.assertEqual("auth", args.command)
+        self.assertEqual("github", args.auth_provider)
+        self.assertEqual("work", args.profile)
+        self.assertTrue(args.status)
+
+    def test_main_rejects_positional_provider_for_non_auth_commands(self):
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                downloader.main(["backup", "github"])
+
     def test_apply_config_defaults_applies_when_cli_uses_defaults(self):
         parser = downloader.build_parser()
         args = parser.parse_args([])
@@ -278,10 +299,122 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual("prompt-token", token)
         mock_getpass.assert_called_once()
 
+    def test_resolve_token_uses_auth_profile_before_prompt(self):
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("downloader.get_profile_secret", return_value="profile-token"):
+                with patch("getpass.getpass") as mock_getpass:
+                    token = downloader.resolve_token(
+                        "TOKEN_ENV_NAME",
+                        provider="github",
+                        auth_profile="default",
+                    )
+        self.assertEqual("profile-token", token)
+        mock_getpass.assert_not_called()
+
+    def test_resolve_token_keyring_error_falls_back_to_prompt(self):
+        with patch.dict("os.environ", {}, clear=True):
+            with patch(
+                "downloader.get_profile_secret",
+                side_effect=ProviderConfigurationError("keyring unavailable"),
+            ):
+                with patch("getpass.getpass", return_value="prompt-token") as mock_getpass:
+                    token = downloader.resolve_token(
+                        "TOKEN_ENV_NAME",
+                        provider="github",
+                        auth_profile="default",
+                    )
+        self.assertEqual("prompt-token", token)
+        mock_getpass.assert_called_once()
+
     def test_create_provider_requires_username_for_bitbucket(self):
         args = argparse.Namespace(provider="bitbucket", username=None)
         with self.assertRaises(ProviderConfigurationError):
             downloader.create_provider(args, token="x")
+
+    def test_run_auth_command_status_uses_profile_credential(self):
+        class _ProviderOk:
+            def __init__(self):
+                self.current_user = {"login": "octocat"}
+
+            @staticmethod
+            def auth_ok():
+                return True
+
+            auth_error = None
+
+        args = argparse.Namespace(
+            auth_provider="github",
+            provider="github",
+            profile="default",
+            status=True,
+            logout=False,
+            no_open_browser=True,
+            username=None,
+        )
+
+        with patch("downloader.get_profile_secret", return_value="token-value"):
+            with patch("downloader.resolve_username", return_value=None):
+                with patch("downloader.create_provider_from_values", return_value=_ProviderOk()):
+                    with redirect_stdout(io.StringIO()) as output:
+                        exit_code = downloader.run_auth_command(args)
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("Auth profile is valid", output.getvalue())
+
+    def test_run_auth_command_logout_deletes_profile_and_secret(self):
+        args = argparse.Namespace(
+            auth_provider="github",
+            provider="github",
+            profile="work",
+            status=False,
+            logout=True,
+            no_open_browser=True,
+            username=None,
+        )
+
+        with patch("downloader.delete_profile_secret", return_value=True):
+            with patch("downloader.delete_auth_profile", return_value=True):
+                with redirect_stdout(io.StringIO()):
+                    exit_code = downloader.run_auth_command(args)
+
+        self.assertEqual(0, exit_code)
+
+    def test_run_auth_command_setup_persists_profile_and_secret(self):
+        class _ProviderOk:
+            def __init__(self):
+                self.current_user = {"login": "octocat"}
+
+            @staticmethod
+            def auth_ok():
+                return True
+
+            auth_error = None
+
+        args = argparse.Namespace(
+            auth_provider="github",
+            provider="github",
+            profile="default",
+            status=False,
+            logout=False,
+            no_open_browser=True,
+            username=None,
+        )
+
+        with patch("downloader._emit_auth_guidance"):
+            with patch("downloader.resolve_username", return_value=None):
+                with patch("getpass.getpass", return_value="token-value"):
+                    with patch(
+                        "downloader.create_provider_from_values",
+                        return_value=_ProviderOk(),
+                    ):
+                        with patch("downloader.set_profile_secret") as set_secret:
+                            with patch("downloader.set_auth_profile") as set_profile:
+                                with redirect_stdout(io.StringIO()):
+                                    exit_code = downloader.run_auth_command(args)
+
+        self.assertEqual(0, exit_code)
+        set_secret.assert_called_once_with("github", "default", "token-value")
+        self.assertEqual(1, set_profile.call_count)
 
     def test_run_backup_dry_run_does_not_call_git_source(self):
         args = SimpleNamespace(

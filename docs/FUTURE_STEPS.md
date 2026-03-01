@@ -105,8 +105,27 @@ Progress:
 - `F022` completed.
 
 Roadmap status:
-- All currently cataloged roadmap features (`F001` through `F022`) are complete.
-- New work should be added as new feature IDs in `docs/FEATURE_CATALOG.md`.
+- Features `F001` through `F026` are complete.
+
+## Phase 6: Distribution, Auth, and Observability (P6)
+Goal: make release operations and authentication production-ready with stronger telemetry.
+
+1. Add production PyPI release workflow and SemVer tagging (`F023`).
+2. Implement secure auth profiles and `auth` command for all providers (`F024`).
+3. Enforce Codecov patch coverage gate (`F025`).
+4. Integrate Sentry opt-in error monitoring (`F026`).
+
+Definition of done:
+- Public PyPI release can be executed from `main` using release workflows.
+- Users can authenticate once and reuse keyring profiles in later runs.
+- Coverage quality gates are enforced in CI.
+- CLI has optional error monitoring without collecting secrets.
+
+Progress:
+- `F023` completed.
+- `F024` completed.
+- `F025` completed.
+- `F026` completed.
 
 ## File Ownership Map For Future Work
 - CLI orchestration: `downloader.py`

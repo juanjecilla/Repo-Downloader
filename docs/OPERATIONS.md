@@ -2,286 +2,174 @@
 
 ## Goals
 - Run repeatable repository backups.
-- Detect and handle failures quickly.
-- Validate backups are restorable.
+- Detect and triage failures quickly.
+- Validate backup restore readiness.
+- Operate release/auth/observability workflows safely.
 
-## Recommended Schedule
+## Scheduling Guidance
 - Critical repositories: at least daily.
-- Large/active organizations: every 4-12 hours for mirror mode.
-- Run `working` mode only when browsing or branch-level local validation is needed.
+- Large organizations: every 4-12 hours in `mirror` mode.
+- Use `working` mode only when branch-level working copies are required.
 
-## Scheduling Examples
-### Cron: every 6 hours mirror backup
+### Cron Example (every 6 hours)
 ```bash
 0 */6 * * * cd /path/to/repo-downloader && /usr/bin/python3 downloader.py backup --config ./profiles/mirror.toml >> /var/log/repo-downloader.log 2>&1
 ```
 
-### Cron: daily full backup + restore validation
+## Standard Command Profiles
+
+Mirror baseline:
 ```bash
-15 2 * * * cd /path/to/repo-downloader && /usr/bin/python3 downloader.py backup --config ./profiles/full.toml >> /var/log/repo-downloader.log 2>&1
-45 2 * * * cd /path/to/repo-downloader && /usr/bin/python3 downloader.py validate-restore --backup-path ./backups/bitbucket/acme/api-service.git --restore-dir /tmp/api-service-restore >> /var/log/repo-downloader.log 2>&1
-```
-
-### systemd timer (Linux)
-`/etc/systemd/system/repo-downloader.service`:
-```ini
-[Unit]
-Description=Repo-Downloader Backup Run
-
-[Service]
-Type=oneshot
-WorkingDirectory=/path/to/repo-downloader
-ExecStart=/usr/bin/python3 /path/to/repo-downloader/downloader.py backup --config ./profiles/full.toml
-```
-
-`/etc/systemd/system/repo-downloader.timer`:
-```ini
-[Unit]
-Description=Run Repo-Downloader every 6 hours
-
-[Timer]
-OnCalendar=*-*-* 00/6:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
-
-## Suggested Command Profiles
-### Profile: Mirror baseline (recommended)
-```bash
-python3 downloader.py \
+repo-downloader backup \
   --provider bitbucket \
   --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
+  --auth-profile default \
   --mode mirror \
   --output-dir ./backups
 ```
 
-### Profile: Full backup for selected workspace
+Scoped backup:
 ```bash
-python3 downloader.py \
+repo-downloader backup \
   --provider bitbucket \
   --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --workspace acme \
-  --mode both \
-  --output-dir ./backups
-```
-
-### Profile: GitHub organization backup
-```bash
-python3 downloader.py \
-  --provider github \
-  --token-env GITHUB_TOKEN \
-  --workspace acme-org \
-  --mode both \
-  --output-dir ./backups
-```
-
-### Profile: GitLab group backup
-```bash
-python3 downloader.py \
-  --provider gitlab \
-  --token-env GITLAB_TOKEN \
-  --workspace acme-group \
-  --mode both \
-  --output-dir ./backups
-```
-
-### Profile: Scoped backup with include/exclude filters
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
+  --auth-profile default \
   --mode both \
   --include "acme/*" \
   --exclude "acme/private-*"
 ```
 
-### Profile: Safe preview before rollout
+Dry-run rollout:
 ```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --dry-run
+repo-downloader backup --provider github --auth-profile default --mode both --dry-run
 ```
 
-### Profile: Retry transient repository failures
+Restore drill:
 ```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --repo-retries 2
-```
-
-### Profile: Force lock replacement (exception use)
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --force-lock
-```
-
-### Profile: Mirror snapshots for offline transfer
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode mirror \
-  --snapshot-format tar.gz \
-  --snapshot-dir ./snapshots
-```
-
-### Profile: Retention cleanup for snapshots/working copies
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --snapshot-format zip \
-  --snapshot-dir ./snapshots \
-  --retain-days 30 \
-  --retain-count 20
-```
-
-### Profile: Inventory existing backups
-```bash
-python3 downloader.py list-backups --output-dir ./backups
-```
-
-### Profile: Validate restore drill
-```bash
-python3 downloader.py validate-restore \
+repo-downloader validate-restore \
   --backup-path ./backups/bitbucket/acme/api-service.git \
   --restore-dir /tmp/api-service-restore
 ```
 
-### Profile: Resume interrupted backup run
+## Auth Profile Operations
+
+Setup:
 ```bash
-python3 downloader.py backup \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --resume
+repo-downloader auth github --profile default
+repo-downloader auth bitbucket --profile work
 ```
 
-### Profile: Config-driven run
+Status:
 ```bash
-python3 downloader.py backup --config ./profiles/daily.toml
+repo-downloader auth github --profile default --status
 ```
 
-### Profile: Parallel repository workers
+Logout:
 ```bash
-python3 downloader.py backup \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --workers 4
+repo-downloader auth github --profile default --logout
 ```
 
-### Profile: Export health summary JSON
-```bash
-python3 downloader.py backup \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --summary-file ./reports/backup-summary.json
-```
+## Auth Incident / Debug Flow
 
-## Observability and Logs
-- Default `text` logs include per-repository actions and summary counters.
-- `json` log format emits structured events with `run_id`, timestamps, provider, repository, mode, action, outcome, and durations where applicable.
-- Investigate any `[ERROR]` or `[WARN]` lines immediately.
-- Write structured logs to a file for auditing:
-  ```bash
-  python3 downloader.py \
-    --provider bitbucket \
-    --username my-user \
-    --token-env BITBUCKET_APP_PASSWORD \
-    --mode both \
-    --log-format json \
-    --log-file ./logs/backup-run.jsonl
-  ```
-- Capture text output with shell redirection:
-  ```bash
-  python3 downloader.py ... > backup.log 2>&1
-  ```
-- End-of-run output includes failure-type counters for failed repositories (`api`, `auth`,
-  `clone`, `fetch`, `checkout`, `other`) to help direct investigation.
-- Lock acquire/release events are logged with lock path and replacement metadata.
-- Summary file export includes per-mode duration totals and failure counters.
-- Error messages are redacted for token/password/secret patterns before logging.
+1. Token not found:
+- Check `--token-env` variable exists.
+- Check profile exists and contains keyring secret.
+- Re-run `repo-downloader auth <provider> --profile <name>`.
+
+2. Bitbucket auth failure:
+- Validate stored/provided `--username`.
+- Validate app password scopes.
+
+3. Keyring backend errors:
+- Verify host keyring service availability.
+- Use environment token path as temporary fallback.
+
+4. Repeated provider auth errors:
+- Run `repo-downloader auth <provider> --status`.
+- Rotate token and re-run setup.
+
+## Release Operations Runbook
+
+Release policy:
+- Stable releases only from `main`.
+- Tag format `vX.Y.Z`.
+
+Workflow order:
+1. Trigger `.github/workflows/release-tag.yml` from `main`.
+2. Verify `.github/workflows/publish-testpypi.yml` success.
+3. Verify `.github/workflows/publish-pypi.yml` success.
+
+Pre-release checks:
+1. CI green on `main`.
+2. Docs updated.
+3. Packaging build and smoke tests passing.
+
+Post-release checks:
+1. `pip install --upgrade repo-downloader` resolves expected version.
+2. CLI smoke:
+   - `repo-downloader --help`
+   - `repo-downloader list-backups --output-dir ./backups`
+
+Rollback strategy:
+- Publish a new patch release with fix.
+- Do not attempt to overwrite existing PyPI artifacts.
+
+## Observability Operations
+
+Structured logs:
+- Use `--log-format json --log-file <path>` for machine parsing.
+
+Summary export:
+- Use `--summary-file` for run-level metrics payloads.
+
+Codecov:
+- Patch coverage gate is `>= 90%`.
+- Project coverage is informational.
+
+Sentry:
+- Disabled by default.
+- Enable via environment:
+  - `REPO_DOWNLOADER_SENTRY_DSN`
+  - `REPO_DOWNLOADER_SENTRY_ENVIRONMENT`
+  - `REPO_DOWNLOADER_SENTRY_RELEASE`
+
+## Observability Troubleshooting
+
+Codecov failures:
+1. Inspect uncovered patch lines.
+2. Add targeted tests.
+3. Re-run coverage job.
+
+Missing Sentry events:
+1. Confirm DSN is set.
+2. Confirm command path initialized Sentry.
+3. Confirm redaction hook is not dropping required event fields.
+
+Unexpected Sentry noise:
+1. Review capture points and severity mapping.
+2. Improve exception grouping and context.
+3. Keep performance tracing disabled unless explicitly needed.
 
 ## Failure Handling
-1. Authentication errors:
-   - Verify token/app-password and `--username`.
-   - Confirm token scopes are sufficient.
-2. SSH clone errors:
-   - Verify SSH key exists and matches `--ssh-key-path`.
-   - Validate host key/known_hosts setup.
+1. Authentication failures:
+- Verify token validity and scopes.
+- Verify provider account access.
+
+2. SSH clone failures:
+- Verify SSH key file and permissions.
+- Verify host key trust/known_hosts.
+
 3. API failures:
-   - Retry after transient outage.
-   - Review provider status pages.
+- Retry after transient outages.
+- Check provider status pages.
+
 4. Repository-specific failures:
-   - Re-run command and inspect the repository block.
-   - Increase `--repo-retries` for transient clone/fetch/api failures.
-   - Confirm repository still exists and access is granted.
-
-## Failure Notification Guidance
-- Alert on non-zero exit codes in cron/systemd wrappers.
-- Emit JSON logs (`--log-format json --log-file ...`) and feed them to your log stack.
-- Send notifications on failures, for example:
-  ```bash
-  python3 downloader.py backup --config ./profiles/full.toml || curl -X POST -H 'Content-type: application/json' --data '{"text":"Repo-Downloader backup failed"}' https://hooks.slack.com/services/XXX/YYY/ZZZ
-  ```
-- Validate notification pipeline quarterly with a forced-failure drill.
-
-## Restore Validation
-Run this periodically to verify backups:
-1. Pick a mirror repo path, for example:
-   - `./backups/bitbucket/acme/api-service.git`
-2. Clone from local mirror:
-   ```bash
-   git clone ./backups/bitbucket/acme/api-service.git /tmp/api-service-restore-test
-   ```
-3. Inspect refs/history:
-   ```bash
-   git -C /tmp/api-service-restore-test branch -a
-   git -C /tmp/api-service-restore-test log --oneline -n 10
-   ```
-4. Remove temporary restore clone after validation.
+- Increase `--repo-retries` for transient errors.
+- Validate repository still exists and permissions are intact.
 
 ## Operational Safety
-- Use `--dry-run` before first production run.
-- Keep backup root on durable storage.
-- Keep snapshot root on durable storage when snapshot export is enabled.
-- Run retention first with `--dry-run` to verify planned deletions.
-- Use `--resume` only for reruns that should continue the same provider/mode/filter signature.
-- Start with `--workers 2` and scale gradually based on network and provider API limits.
-- Avoid deleting existing backup paths outside planned retention procedures.
-- Preserve mirrors as source-of-truth backup artifacts.
-- Never run two jobs against the same provider/output root concurrently.
-- Use `--force-lock` only when an existing lock is stale or intentionally superseded.
-- Keep provider runs separate if needed; pathing is deterministic by provider under `<output>/<provider>/`.
-
-## Pull Request Review Automation
-- CodeRabbit automatic review is configured in `.coderabbit.yaml`.
-- Any pull request targeting `main` or `develop` triggers auto review, including draft pull requests.
-
-## Future Operational Enhancements
-Future operational work items are tracked in:
-- `docs/FUTURE_STEPS.md`
-- `docs/FEATURE_CATALOG.md`
+- Use `--dry-run` before new production rollouts.
+- Keep backup/snapshot roots on durable storage.
+- Never run concurrent jobs against same provider/output root.
+- Use `--force-lock` only when lock is stale or intentionally superseded.
+- Preserve mirror backups as source-of-truth artifacts.

@@ -1,0 +1,83 @@
+name: Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: SemVer bump type
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute next version tag
+        id: version
+        run: |
+          set -euo pipefail
+          latest_tag=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
+          if [ -z "$latest_tag" ]; then
+            latest_version="0.1.0"
+          else
+            latest_version="${latest_tag#v}"
+          fi
+
+          IFS='.' read -r major minor patch <<< "$latest_version"
+
+          case "${{ github.event.inputs.bump }}" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+            *)
+              echo "Invalid bump type"
+              exit 1
+              ;;
+          esac
+
+          new_tag="v${major}.${minor}.${patch}"
+          echo "new_tag=${new_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          set -euo pipefail
+          new_tag="${{ steps.version.outputs.new_tag }}"
+          if git rev-parse "$new_tag" >/dev/null 2>&1; then
+            echo "Tag already exists: $new_tag"
+            exit 1
+          fi
+          git tag -a "$new_tag" -m "Release $new_tag"
+          git push origin "$new_tag"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.new_tag }}
+          name: ${{ steps.version.outputs.new_tag }}
+          generate_release_notes: true

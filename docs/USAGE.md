@@ -3,163 +3,133 @@
 ## Prerequisites
 - Python 3.8+
 - `git` installed and available in `PATH`
-- SSH key configured for repository access
+- SSH key configured for repository clone access
 - Provider credentials:
-  - Bitbucket app password.
-  - GitHub personal access token (classic or fine-grained with repository read access).
-  - GitLab personal access token with API read access.
+  - Bitbucket app password
+  - GitHub personal access token
+  - GitLab personal access token
 
-Install dependencies:
+Install dependencies for source execution:
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-Install packaged CLI with `pipx`:
+Install from source with `pipx`:
 ```bash
 pipx install .
 ```
 
-After installation, run with:
+Install from PyPI:
 ```bash
-repo-downloader [command] [options]
-```
-
-Build and run with Docker:
-```bash
-docker build -t repo-downloader:local .
-docker run --rm repo-downloader:local --help
+python3 -m pip install --upgrade repo-downloader
 ```
 
 ## Compatibility Matrix
+
 | Component | Support Level | Versions / Notes |
 |---|---|---|
 | Operating system | CI-tested | Ubuntu (`ubuntu-latest`), macOS (`macos-latest`), Windows (`windows-latest`) |
 | Python runtime | Supported | Minimum `3.8` |
 | Python runtime | CI-tested | `3.9`, `3.11`, `3.12` |
-| Git CLI | Supported | Minimum `2.30.0` available in `PATH` |
+| Git CLI | Supported | Minimum `2.30.0` |
 | Providers | Supported | Bitbucket, GitHub, GitLab |
 
-Runtime compatibility checks:
-- Each backup run emits a `runtime.compatibility` structured event.
-- The CLI prints warnings when runtime Python/Git/platform are below supported minimums
-  or outside the validated matrix.
-- To verify your environment quickly:
-  ```bash
-  python3 downloader.py --help
-  git --version
-  ```
-
 ## Authentication
-Repo-Downloader uses a token/app-password value for API authentication.
+Repo-Downloader supports three token sources for backup flows.
 
-Options:
-1. Interactive prompt (default fallback).
-2. Environment variable via `--token-env`.
+Resolution precedence:
+1. `--token-env`
+2. Auth profile from keyring (`--auth-profile`)
+3. Interactive prompt fallback
 
-Example:
+Use auth command for profile-based credential setup:
 ```bash
-export BITBUCKET_APP_PASSWORD="***"
-python3 downloader.py --provider bitbucket --username my-user --token-env BITBUCKET_APP_PASSWORD
+repo-downloader auth github
+repo-downloader auth bitbucket --profile work
+repo-downloader auth gitlab --status
+repo-downloader auth github --logout
 ```
 
-If `--token-env` is provided but not set, the CLI falls back to interactive prompt.
+Bitbucket username resolution:
+1. `--username`
+2. Stored profile username
+3. Prompt fallback
 
 ## CLI Reference
+Source entrypoint:
 ```bash
 python3 downloader.py [command] [options]
 ```
 
-Packaged entry point equivalent:
+Packaged entrypoint:
 ```bash
 repo-downloader [command] [options]
 ```
 
 Commands:
-- `backup` (default): run backup sync flow.
-- `list-backups`: list discovered mirror/working backup paths.
-- `validate-restore`: clone a backup locally and verify refs are readable.
+- `backup` (default): run backup sync flow
+- `list-backups`: list discovered mirror/working backup paths
+- `validate-restore`: clone a backup and verify refs are readable
+- `auth`: configure/validate/remove provider credentials in auth profiles
 
-### Options
-- `-u, --username`: Remote account username.
-- `--config`: Path to TOML/YAML profile file.
-- `command`: Optional command (`backup`, `list-backups`, `validate-restore`), default `backup`.
-- `--provider`: Provider backend (`bitbucket`, `github`, `gitlab`), default `bitbucket`.
-- `--mode`: Backup mode (`mirror`, `working`, `both`), default `both`.
-- `-w, --workspace`: Optional workspace filter.
-- `--output-dir`: Backup root directory, default `./backups`.
-- `--snapshot-format`: Optional mirror snapshot export format (`zip`, `tar.gz`).
-- `--snapshot-dir`: Snapshot archive root directory, default `./snapshots`.
-- `--include-archived`: Include archived repositories.
-- `--dry-run`: Show actions without cloning/fetching/checking out.
-- `--ssh-key-path`: SSH private key path, default `~/.ssh/id_rsa`.
-- `--role`: Provider role filter, default `member` (Bitbucket only).
-- `--token-env`: Environment variable containing token/app-password.
-- `--log-format`: Log format (`text` or `json`), default `text`.
-- `--log-file`: Optional file path where logs are written in the selected format.
-- `--summary-file`: Optional JSON file path for run health/metrics summary export.
-- `--include`: Include repository full-name glob patterns. Repeat or comma-separate values.
-- `--exclude`: Exclude repository full-name glob patterns. Repeat or comma-separate values.
-- `--branch`: In working mode, include only specific branch names. Repeat or comma-separate values.
-- `--branch-pattern`: In working mode, include branches matching glob patterns.
-- `--default-branch-only`: In working mode, checkout only the repository default branch.
-- `--repo-retries`: Additional retries per repository after a failure, default `0`.
-- `--workers`: Number of concurrent repository workers, default `1`.
-- `--force-lock`: Replace an active/stale run lock for the selected provider/output root.
-- `--retain-days`: Delete snapshot/working artifacts older than this many days.
-- `--retain-count`: Keep only the most recent N snapshot/working artifacts per repository.
-- `--backup-path`: Backup path used by `validate-restore`.
-- `--restore-dir`: Clone target used by `validate-restore`, default `./restore-validation`.
-- `--resume`: Resume backup using checkpoint state from a previous interrupted run.
+### Primary Options
+- `-u, --username`: remote account username (required for Bitbucket if not in profile)
+- `--config`: path to TOML/YAML profile file
+- `--provider`: provider backend (`bitbucket`, `github`, `gitlab`)
+- `--mode`: backup mode (`mirror`, `working`, `both`)
+- `-w, --workspace`: workspace filter
+- `--output-dir`: backup root directory
+- `--snapshot-format`: optional snapshot export format (`zip`, `tar.gz`)
+- `--snapshot-dir`: snapshot root directory
+- `--include-archived`: include archived repositories
+- `--dry-run`: show planned actions without git writes
+- `--ssh-key-path`: SSH private key path
+- `--role`: Bitbucket role filter
+- `--token-env`: token/app-password environment variable name
+- `--auth-profile`: auth profile name for keyring lookup (default `default`)
+- `--log-format`: `text` or `json`
+- `--log-file`: optional log file path
+- `--summary-file`: optional run summary JSON output
+- `--include`, `--exclude`: repository include/exclude glob patterns
+- `--branch`, `--branch-pattern`, `--default-branch-only`: branch selectors (working mode)
+- `--repo-retries`: retries per repository
+- `--workers`: concurrent repository workers
+- `--force-lock`: replace existing run lock
+- `--retain-days`, `--retain-count`: retention controls
+- `--resume`: resume from checkpoint
+
+### Restore Command Options
+- `--backup-path`: backup path for `validate-restore`
+- `--restore-dir`: restore target directory
+
+### Auth Command Options
+- `--profile`: auth profile name (default `default`)
+- `--status`: validate and print profile auth status
+- `--logout`: delete stored credential/profile
+- `--no-open-browser`: do not open provider credential setup URL
+
+### Sentry Options (optional overrides)
+- `--sentry-dsn`
+- `--sentry-environment`
+- `--sentry-release`
 
 ## Provider Behavior Matrix
+
 | Capability | Bitbucket | GitHub | GitLab | Notes |
 |---|---|---|---|---|
-| `--provider` runtime support | Yes | Yes | Yes | All providers implement contract methods. |
-| Workspace filter (`--workspace`) | Yes | Yes | Yes | Bitbucket workspace, GitHub organization, GitLab group/namespace. |
-| Role filter (`--role`) | Yes | Ignored | Ignored | `--role` only affects Bitbucket permission API. |
-| Include/exclude repo filters | Yes | Yes | Yes | Applied in downloader layer against `workspace/repo` full name. |
-| Archived repo filtering | Yes | Yes | Yes | Uses provider-specific archive flags normalized by downloader. |
-| Branch selectors in working mode | Yes | Yes | Yes | `--branch`, `--branch-pattern`, `--default-branch-only`. |
-| Mirror + working output layout | Yes | Yes | Yes | Paths stay `<output>/<provider>/<workspace>/<repo>...`. |
-| Dry-run behavior | Yes | Yes | Yes | Planned clone/fetch/checkout actions are logged without git writes. |
-
-## Backup Modes
-### `mirror`
-- Creates or updates bare mirror repositories.
-- Best for disaster recovery and preserving all refs/history.
-
-### `working`
-- Creates or updates working-copy clones.
-- Fetches and iterates provider branches to checkout/update local branches.
-
-### `both`
-- Runs `mirror` and `working` for every repository.
-
-## Output Structure
-Given:
-- `--output-dir ./backups`
-- `--provider bitbucket`
-- workspace `acme`
-- repository `api-service`
-
-Results:
-- Mirror: `./backups/bitbucket/acme/api-service.git`
-- Working: `./backups/bitbucket/acme/api-service/`
+| Runtime provider support | Yes | Yes | Yes | All providers implement contract methods |
+| Workspace filter | Yes | Yes | Yes | Workspace/org/group semantics vary by provider |
+| Role filter (`--role`) | Yes | Ignored | Ignored | Bitbucket only |
+| Include/exclude repo filters | Yes | Yes | Yes | Applied in downloader layer |
+| Branch selectors | Yes | Yes | Yes | Working mode only |
+| Auth profile support | Yes | Yes | Yes | Via keyring profile storage |
 
 ## Examples
-### Mirror-only backup for one workspace
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --mode mirror \
-  --workspace acme
-```
 
-### Full backup without prompt using env token
+### Backup from environment token
 ```bash
 export BITBUCKET_APP_PASSWORD="***"
-python3 downloader.py \
+repo-downloader backup \
   --provider bitbucket \
   --username my-user \
   --token-env BITBUCKET_APP_PASSWORD \
@@ -167,188 +137,21 @@ python3 downloader.py \
   --output-dir ./backups
 ```
 
-### GitHub backup for all accessible repositories
+### Backup from stored auth profile
 ```bash
-export GITHUB_TOKEN="***"
-python3 downloader.py \
-  --provider github \
-  --token-env GITHUB_TOKEN \
-  --mode both \
-  --output-dir ./backups
+repo-downloader auth github --profile personal
+repo-downloader backup --provider github --auth-profile personal --mode both
 ```
 
-### GitLab backup for one group/namespace
+### Auth status and logout
 ```bash
-export GITLAB_TOKEN="***"
-python3 downloader.py \
-  --provider gitlab \
-  --token-env GITLAB_TOKEN \
-  --workspace acme-group \
-  --mode both \
-  --output-dir ./backups
+repo-downloader auth gitlab --profile work --status
+repo-downloader auth gitlab --profile work --logout
 ```
 
-### Dry run preview
+### Config-driven run
 ```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --mode both \
-  --workspace acme \
-  --dry-run
-```
-
-### JSON logs to file
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --log-format json \
-  --log-file ./logs/backup-run.jsonl
-```
-
-### Export run summary metrics
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --summary-file ./reports/backup-summary.json
-```
-
-Summary payload includes:
-- repository counters (`processed`, `succeeded`, `skipped`, `failed`)
-- failure-type counters (`api`, `auth`, `clone`, `fetch`, `checkout`, `other`)
-- per-mode duration totals (`mode_duration_ms`)
-
-### Filter repositories with include/exclude patterns
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --include "acme/*" \
-  --exclude "acme/private-*"
-```
-
-Filtering semantics:
-- Include patterns are applied first. If any include pattern is provided, a repository must match at least one.
-- Exclude patterns are applied second. Any exclude match skips the repository.
-- Pattern matching runs against repository full names (`workspace/repo`).
-
-### Select working-mode branches
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode working \
-  --branch "main,release" \
-  --branch-pattern "hotfix/*"
-```
-
-Branch selector semantics:
-- Selectors apply only in `working` mode.
-- If selectors are omitted, all provider branches are considered.
-- `--default-branch-only` takes precedence over `--branch` and `--branch-pattern`.
-
-### Retry failed repositories
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --repo-retries 2
-```
-
-Retry semantics:
-- The command attempts each repository once, plus `--repo-retries` additional attempts.
-- Failure classification counters are included in the run summary (`api`, `auth`, `clone`,
-  `fetch`, `checkout`, `other`).
-
-### Enable parallel repository sync workers
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --workers 4
-```
-
-Worker semantics:
-- `--workers 1` is sequential execution (default).
-- When `--workers > 1`, repository work runs concurrently with deterministic grouped logs.
-
-### Export mirror snapshots
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode mirror \
-  --snapshot-format tar.gz \
-  --snapshot-dir ./snapshots
-```
-
-Snapshot semantics:
-- Snapshots are exported after mirror sync completes for each repository.
-- Snapshot path format:
-  - `./snapshots/<provider>/<workspace>/<repo>-<timestamp>.<zip|tar.gz>`
-
-### Apply retention policy
-```bash
-python3 downloader.py \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode mirror \
-  --snapshot-format zip \
-  --snapshot-dir ./snapshots \
-  --retain-days 30 \
-  --retain-count 20
-```
-
-Retention semantics:
-- `--retain-days` deletes artifacts older than the given number of days.
-- `--retain-count` keeps only the newest N artifacts for the repository.
-- Use `--dry-run` to review planned deletions before applying them.
-
-### List known backup artifacts
-```bash
-python3 downloader.py list-backups --output-dir ./backups
-```
-
-### Validate restore from a mirror backup
-```bash
-python3 downloader.py validate-restore \
-  --backup-path ./backups/bitbucket/acme/api-service.git \
-  --restore-dir /tmp/api-service-restore
-```
-
-### Resume an interrupted backup run
-```bash
-python3 downloader.py backup \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode both \
-  --resume
-```
-
-Resume semantics:
-- Checkpoint path: `<output>/<provider>/.repo-downloader-checkpoint.json`.
-- Repositories completed in a previous run are skipped when signature matches.
-- Checkpoint is cleared automatically when the resumed run completes without failures.
-
-### Run from a config profile
-```bash
-python3 downloader.py backup --config ./profiles/daily.toml
+repo-downloader backup --config ./profiles/daily.toml
 ```
 
 Example `daily.toml`:
@@ -365,50 +168,40 @@ retain_count = 20
 resume = true
 include = ["acme/*"]
 exclude = ["acme/private-*"]
+auth_profile = "default"
 ```
 
-Config precedence:
-- CLI flags override config file values.
-- Config values are used only when the matching CLI option remains at its default value.
+## Observability
 
-### Run backup from Docker with mounted SSH key/output
+Codecov:
+- CI uploads `coverage.xml`.
+- Patch coverage has a hard gate at `90%`.
+- Project coverage is informational.
+
+Sentry:
+- Disabled by default.
+- Enabled only when DSN is configured.
+- Environment contract:
+  - `REPO_DOWNLOADER_SENTRY_DSN`
+  - `REPO_DOWNLOADER_SENTRY_ENVIRONMENT`
+  - `REPO_DOWNLOADER_SENTRY_RELEASE`
+
+Example:
 ```bash
-docker run --rm \
-  -v "$HOME/.ssh:/root/.ssh:ro" \
-  -v "$PWD/backups:/data/backups" \
-  -e BITBUCKET_APP_PASSWORD \
-  repo-downloader:local backup \
-  --provider bitbucket \
-  --username my-user \
-  --token-env BITBUCKET_APP_PASSWORD \
-  --mode mirror \
-  --output-dir /data/backups
+export REPO_DOWNLOADER_SENTRY_DSN="https://<key>@o0.ingest.sentry.io/0"
+export REPO_DOWNLOADER_SENTRY_ENVIRONMENT="production"
+repo-downloader backup --provider github --auth-profile default --mode mirror
 ```
 
-Container notes:
-- Mount SSH keys read-only and ensure permissions are compatible with SSH client expectations.
-- Mount backup/output directories as writable volumes.
-- Pass tokens using environment variables (`-e ...`) and `--token-env`.
-
-### Run locking
-Each run acquires a lock file under the output root:
+## Run Locking
+Lock path:
 - `<output>/.repo-downloader-<provider>.lock`
 
-If another process is active for the same provider/output root, the run exits with an error.
-Use `--force-lock` only when you are sure the existing lock is stale or should be replaced.
-
-## Restore Notes
-- Mirror restore:
-  ```bash
-  git clone /path/to/repo.git restored-repo
-  ```
-- Working copy backups are directly browsable as regular repositories.
-
-## Known Limitations
-- Provider behaviors can differ based on token scopes and provider-side permissions.
+If another process is active for the same provider/output root, run exits with error.
+Use `--force-lock` only for stale or intentionally superseded runs.
 
 ## Exit Codes
-- `0`: Completed without repository failures.
-- `1`: Startup/provider/auth configuration failure.
-- `2`: Completed with one or more repository processing failures.
-- `130`: Interrupted by user.
+- `0`: completed without repository failures
+- `1`: startup/provider/auth/configuration failure
+- `2`: completed with one or more repository failures
+- `130`: interrupted by user

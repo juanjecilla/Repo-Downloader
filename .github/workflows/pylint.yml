@@ -44,6 +44,61 @@ jobs:
       - name: CLI smoke test
         run: python downloader.py --help
 
+  package-check:
+    name: Package Build and Smoke (ubuntu-latest, py3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine pipx
+      - name: Build distribution
+        run: python -m build
+      - name: Validate package metadata
+        run: twine check dist/*
+      - name: Install wheel with pipx
+        run: pipx install --force dist/*.whl
+      - name: Smoke test packaged CLI
+        run: |
+          repo-downloader --help
+          mkdir -p ./backups/github/example
+          touch ./backups/github/example/repo.git
+          repo-downloader list-backups --output-dir ./backups
+
+  coverage:
+    name: Coverage and Codecov (ubuntu-latest, py3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install .
+          pip install coverage
+      - name: Run tests with coverage
+        run: |
+          coverage run -m unittest discover -s tests -p "test_*.py"
+          coverage xml -o coverage.xml
+      - name: Upload coverage to Codecov
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        if: ${{ env.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          token: ${{ env.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
   lint:
     name: Lint (ubuntu-latest, py3.11)
     runs-on: ubuntu-latest

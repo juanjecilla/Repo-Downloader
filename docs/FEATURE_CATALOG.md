@@ -313,6 +313,72 @@ Status values:
   - Base branches include `main` and `develop`.
   - Draft pull requests are included in auto review scope.
 
+### F023 Production PyPI Release Pipeline and SemVer Tagging
+- Priority: `next`
+- Status: `done`
+- Goal: make `pip install repo-downloader` production-ready with stable release workflows.
+- Files:
+  - `pyproject.toml`
+  - `.github/workflows/release-tag.yml`
+  - `.github/workflows/publish-testpypi.yml`
+  - `.github/workflows/publish-pypi.yml`
+  - `.github/workflows/pylint.yml`
+  - `docs/RELEASING.md`
+- Acceptance criteria:
+  - `pyproject.toml` is the single metadata source.
+  - Version comes from SemVer tags (`vX.Y.Z`).
+  - Tag-triggered workflow publishes to TestPyPI then PyPI with OIDC.
+  - CI includes package build and install smoke checks.
+
+### F024 Auth Profiles and `auth` Command
+- Priority: `next`
+- Status: `done`
+- Goal: add secure profile-based authentication for Bitbucket/GitHub/GitLab.
+- Files:
+  - `downloader.py`
+  - `utils/auth_store.py`
+  - `utils/errors.py`
+  - `docs/AUTH_PROFILES.md`
+  - `docs/USAGE.md`
+  - `docs/OPERATIONS.md`
+  - `tests/test_downloader.py`
+  - `tests/test_auth_store.py`
+- Acceptance criteria:
+  - Add `repo-downloader auth <provider>` command.
+  - Add `--profile`, `--status`, `--logout`, `--auth-profile`.
+  - Token precedence is `--token-env` -> keyring profile -> prompt.
+  - Existing backup/list/restore commands remain backward compatible.
+
+### F025 Codecov Coverage Gating
+- Priority: `planned`
+- Status: `done`
+- Goal: enforce patch-level quality gate with Codecov.
+- Files:
+  - `.coveragerc`
+  - `.codecov.yml`
+  - `.github/workflows/pylint.yml`
+- Acceptance criteria:
+  - CI generates and uploads `coverage.xml`.
+  - Patch coverage gate is >= 90%.
+  - Project coverage remains informational.
+
+### F026 Sentry Opt-in Error Monitoring
+- Priority: `planned`
+- Status: `done`
+- Goal: add opt-in CLI error monitoring with redaction-safe event capture.
+- Files:
+  - `utils/sentry_utils.py`
+  - `downloader.py`
+  - `docs/OBSERVABILITY.md`
+  - `docs/USAGE.md`
+  - `docs/OPERATIONS.md`
+  - `tests/test_sentry_utils.py`
+  - `tests/test_downloader.py`
+- Acceptance criteria:
+  - Sentry disabled by default and enabled only when DSN is configured.
+  - Redaction is applied before event submission.
+  - CLI command and provider metadata are attached as low-cardinality tags.
+
 ## Already Implemented Features (Reference)
 
 ### B001 CLI Modes and Provider Selection

@@ -10,6 +10,7 @@ import os
 import shutil
 import sys
 import time
+import webbrowser
 
 from utils import url_utils
 from utils.compatibility import (
@@ -27,6 +28,14 @@ from utils.errors import (
     RepositorySyncError,
 )
 from utils.log_utils import NullLogger, RunLogger
+from utils.auth_store import (
+    delete_auth_profile,
+    delete_profile_secret,
+    get_auth_profile,
+    get_profile_secret,
+    set_auth_profile,
+    set_profile_secret,
+)
 from utils.repo_utils import (
     acquire_run_lock,
     build_backup_paths,
@@ -45,6 +54,7 @@ from utils.repo_utils import (
     repository_matches_filters,
     save_checkpoint,
 )
+from utils.sentry_utils import capture_exception, initialize_sentry, set_sentry_tags
 
 PROVIDER_CLASS_PATHS = {
     "bitbucket": ("data.source.remote_sources", "BitbucketSource"),
@@ -52,6 +62,20 @@ PROVIDER_CLASS_PATHS = {
     "gitlab": ("data.source.remote_sources", "GitLabSource"),
 }
 FAILURE_TYPE_ORDER = ("api", "auth", "clone", "fetch", "checkout", "other")
+AUTH_PROVIDER_GUIDANCE = {
+    "bitbucket": {
+        "url": "https://bitbucket.org/account/settings/app-passwords/",
+        "credential_label": "app password",
+    },
+    "github": {
+        "url": "https://github.com/settings/tokens",
+        "credential_label": "personal access token",
+    },
+    "gitlab": {
+        "url": "https://gitlab.com/-/user_settings/personal_access_tokens",
+        "credential_label": "personal access token",
+    },
+}
 
 
 def build_parser():
@@ -70,9 +94,16 @@ def build_parser():
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("backup", "list-backups", "validate-restore"),
+        choices=("backup", "list-backups", "validate-restore", "auth"),
         default="backup",
         help="CLI command to execute.",
+    )
+    parser.add_argument(
+        "auth_provider",
+        nargs="?",
+        choices=sorted(PROVIDER_CLASS_PATHS.keys()),
+        default=None,
+        help="Provider name used by the 'auth' command.",
     )
     parser.add_argument(
         "--provider",
@@ -146,6 +177,33 @@ def build_parser():
         help="Environment variable name containing the provider token/app password.",
     )
     parser.add_argument(
+        "--auth-profile",
+        type=str,
+        default="default",
+        help="Auth profile name used to load keyring credentials.",
+    )
+    parser.add_argument(
+        "--profile",
+        type=str,
+        default="default",
+        help="Auth profile name used by 'auth' commands.",
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="For 'auth': validate and display current credential status.",
+    )
+    parser.add_argument(
+        "--logout",
+        action="store_true",
+        help="For 'auth': remove stored credential and profile metadata.",
+    )
+    parser.add_argument(
+        "--no-open-browser",
+        action="store_true",
+        help="For 'auth': do not open provider credential setup page in browser.",
+    )
+    parser.add_argument(
         "--log-format",
         choices=("text", "json"),
         default="text",
@@ -162,6 +220,24 @@ def build_parser():
         type=str,
         default=None,
         help="Optional JSON file path to export end-of-run summary metrics.",
+    )
+    parser.add_argument(
+        "--sentry-dsn",
+        type=str,
+        default=None,
+        help="Optional Sentry DSN override (defaults to environment variable).",
+    )
+    parser.add_argument(
+        "--sentry-environment",
+        type=str,
+        default=None,
+        help="Optional Sentry environment override.",
+    )
+    parser.add_argument(
+        "--sentry-release",
+        type=str,
+        default=None,
+        help="Optional Sentry release override.",
     )
     parser.add_argument(
         "--include",
@@ -382,7 +458,43 @@ def apply_config_defaults(parser, args, config_values):
     return args
 
 
-def resolve_token(token_env, logger=None):
+def resolve_username(
+    username,
+    provider,
+    auth_profile="default",
+    logger=None,
+    prompt_if_missing=True,
+):
+    logger = logger or NullLogger()
+    if provider != "bitbucket":
+        return username
+    if username:
+        return username
+
+    profile = get_auth_profile(provider, auth_profile)
+    if profile and profile.get("username"):
+        stored_username = profile["username"]
+        logger.event(
+            "auth.username.source",
+            outcome="success",
+            source="profile",
+            auth_profile=auth_profile,
+        )
+        return stored_username
+
+    if not prompt_if_missing:
+        return None
+
+    prompted_username = input("Enter Bitbucket username: ").strip()
+    if prompted_username:
+        logger.event("auth.username.source", outcome="prompt", source="prompt")
+        return prompted_username
+    raise ProviderConfigurationError(
+        "Bitbucket username is required. Provide '--username' or configure auth profile."
+    )
+
+
+def resolve_token(token_env, provider=None, auth_profile="default", logger=None):
     logger = logger or NullLogger()
     if token_env:
         token = os.environ.get(token_env)
@@ -395,19 +507,43 @@ def resolve_token(token_env, logger=None):
             )
             return token
         fallback_msg = (
-            f"Environment variable '{token_env}' was not set. Falling back to prompt."
+            f"Environment variable '{token_env}' was not set. "
+            "Falling back to auth profile or prompt."
         )
         logger.event(
             "auth.token.source",
             outcome="fallback",
             level="WARNING",
             token_env=token_env,
-            source="prompt",
+            source="fallback",
             message=fallback_msg,
         )
         emit_text(logger, fallback_msg)
-    else:
-        logger.event("auth.token.source", outcome="prompt", source="prompt")
+
+    if provider:
+        try:
+            profile_token = get_profile_secret(provider, auth_profile)
+        except ProviderConfigurationError as exc:
+            logger.event(
+                "auth.token.source",
+                outcome="fallback",
+                level="WARNING",
+                source="prompt",
+                auth_profile=auth_profile,
+                message=str(exc),
+            )
+            emit_text(logger, f"[WARN] {exc}")
+            profile_token = None
+        if profile_token:
+            logger.event(
+                "auth.token.source",
+                outcome="success",
+                source="profile",
+                auth_profile=auth_profile,
+            )
+            return profile_token
+
+    logger.event("auth.token.source", outcome="prompt", source="prompt")
     return getpass.getpass("Enter account token / app password: ")
 
 
@@ -579,12 +715,11 @@ def select_working_branches(
     return selected
 
 
-def create_provider(args, token):
-    provider_name = args.provider
+def create_provider_from_values(provider_name, username, token):
     if provider_name not in PROVIDER_CLASS_PATHS:
         raise ProviderConfigurationError(f"Unknown provider '{provider_name}'.")
 
-    if provider_name == "bitbucket" and not args.username:
+    if provider_name == "bitbucket" and not username:
         raise ProviderConfigurationError(
             "Argument '--username' is required for provider 'bitbucket'."
         )
@@ -599,7 +734,11 @@ def create_provider(args, token):
             "Install project dependencies with `pip install -r requirements.txt`."
         ) from exc
 
-    return provider_class(args.username, token)
+    return provider_class(username, token)
+
+
+def create_provider(args, token):
+    return create_provider_from_values(args.provider, args.username, token)
 
 
 def sync_mirror(git_source, clone_url, mirror_path, dry_run, logger, provider_name, repository):
@@ -1496,6 +1635,129 @@ def run_validate_restore_command(args):
     return 0
 
 
+def _extract_user_hint(user_info):
+    if not isinstance(user_info, dict):
+        return "unknown"
+    for key in ("username", "login", "name", "email"):
+        value = user_info.get(key)
+        if value:
+            return str(value)
+    if user_info.get("id") is not None:
+        return str(user_info["id"])
+    return "unknown"
+
+
+def _emit_auth_guidance(provider_name, no_open_browser):
+    guidance = AUTH_PROVIDER_GUIDANCE.get(provider_name, {})
+    setup_url = guidance.get("url")
+    credential_label = guidance.get("credential_label", "token")
+    print(
+        f"Auth setup for '{provider_name}': create a {credential_label} and paste it when prompted."
+    )
+    if setup_url:
+        print(f"Provider setup URL: {setup_url}")
+        if not no_open_browser:
+            try:
+                webbrowser.open(setup_url, new=2)
+            except webbrowser.Error:
+                pass
+
+
+def run_auth_command(args):  # pylint: disable=too-many-return-statements
+    provider_name = args.auth_provider or args.provider
+    profile_name = args.profile or "default"
+
+    if provider_name not in PROVIDER_CLASS_PATHS:
+        print(
+            f"[ERROR] Provider is required for auth command. "
+            f"Use one of: {', '.join(sorted(PROVIDER_CLASS_PATHS.keys()))}."
+        )
+        return 1
+
+    if args.status and args.logout:
+        print("[ERROR] Use only one of --status or --logout for auth command.")
+        return 1
+
+    try:
+        if args.logout:
+            removed_secret = delete_profile_secret(provider_name, profile_name)
+            removed_profile = delete_auth_profile(provider_name, profile_name)
+            if removed_secret or removed_profile:
+                print(f"Auth profile removed: provider={provider_name}, profile={profile_name}")
+            else:
+                print(
+                    "No stored auth profile found to remove: "
+                    f"provider={provider_name}, profile={profile_name}"
+                )
+            return 0
+
+        if args.status:
+            token = get_profile_secret(provider_name, profile_name)
+            if not token:
+                print(
+                    "[ERROR] No stored credential found. "
+                    f"Run `repo-downloader auth {provider_name} --profile {profile_name}` first."
+                )
+                return 1
+
+            username = resolve_username(
+                args.username,
+                provider_name,
+                auth_profile=profile_name,
+                prompt_if_missing=False,
+            )
+            provider = create_provider_from_values(provider_name, username, token)
+            if not provider.auth_ok():
+                message = provider.auth_error or "Unknown authentication error."
+                print(
+                    f"[ERROR] Auth profile validation failed for provider={provider_name}, "
+                    f"profile={profile_name}: {message}"
+                )
+                return 1
+
+            user_hint = _extract_user_hint(getattr(provider, "current_user", None))
+            print(
+                f"Auth profile is valid: provider={provider_name}, profile={profile_name}, "
+                f"user={user_hint}"
+            )
+            return 0
+
+        _emit_auth_guidance(provider_name, args.no_open_browser)
+        username = resolve_username(
+            args.username,
+            provider_name,
+            auth_profile=profile_name,
+            prompt_if_missing=(provider_name == "bitbucket"),
+        )
+        token = getpass.getpass("Enter account token / app password: ").strip()
+        if not token:
+            print("[ERROR] Empty credential value. Auth setup aborted.")
+            return 1
+
+        provider = create_provider_from_values(provider_name, username, token)
+        if not provider.auth_ok():
+            message = provider.auth_error or "Unknown authentication error."
+            print(f"[ERROR] Authentication failed: {sanitize_error_text(message, [token])}")
+            return 1
+
+        user_hint = _extract_user_hint(getattr(provider, "current_user", None))
+        set_profile_secret(provider_name, profile_name, token)
+        set_auth_profile(
+            provider_name,
+            profile_name,
+            username=username,
+            user_hint=user_hint,
+        )
+        print(
+            "Authentication stored successfully: "
+            f"provider={provider_name}, profile={profile_name}, user={user_hint}"
+        )
+        return 0
+    except RepoDownloaderError as exc:
+        print(f"[ERROR] {exc}")
+        return 1
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1503,10 +1765,36 @@ def main(argv=None):
         config_values = load_config_file(args.config)
         args = apply_config_defaults(parser, args, config_values)
 
-    if args.command == "list-backups":
-        return run_list_backups_command(args)
-    if args.command == "validate-restore":
-        return run_validate_restore_command(args)
+    if args.command == "auth" and not args.auth_provider:
+        parser.error(
+            "auth command requires provider positional argument "
+            "(bitbucket|github|gitlab)."
+        )
+    if args.command != "auth" and args.auth_provider:
+        parser.error(
+            "Positional provider argument is only valid for the auth command. "
+            "Use --provider for backup/list-backups/validate-restore commands."
+        )
+
+    if args.command in ("auth", "list-backups", "validate-restore"):
+        provider_for_tags = args.auth_provider if args.command == "auth" else args.provider
+        initialize_sentry(args=args, logger=None)
+        set_sentry_tags(
+            command=args.command,
+            provider=provider_for_tags,
+            mode=args.mode,
+            run_id=None,
+        )
+        try:
+            if args.command == "auth":
+                return run_auth_command(args)
+            if args.command == "list-backups":
+                return run_list_backups_command(args)
+            return run_validate_restore_command(args)
+        except Exception as exc:  # pragma: no cover  # pylint: disable=broad-exception-caught
+            capture_exception(exc)
+            print(f"[ERROR] {sanitize_error_text(str(exc))}")
+            return 1
 
     if args.repo_retries < 0:
         parser.error("--repo-retries must be zero or a positive integer.")
@@ -1521,6 +1809,13 @@ def main(argv=None):
     args.branch_names = normalize_cli_list(args.branch)
     args.branch_patterns = normalize_cli_list(args.branch_pattern)
     logger = RunLogger(log_format=args.log_format, log_file=args.log_file)
+    sentry_state = initialize_sentry(args=args, logger=logger)
+    set_sentry_tags(
+        command=args.command,
+        provider=args.provider,
+        mode=args.mode,
+        run_id=logger.run_id,
+    )
 
     logger.event(
         "run.start",
@@ -1538,6 +1833,7 @@ def main(argv=None):
         include_archived=args.include_archived,
         ssh_key_path=args.ssh_key_path,
         token_env=args.token_env,
+        auth_profile=args.auth_profile,
         include_patterns=args.include,
         exclude_patterns=args.exclude,
         branch_names=args.branch_names,
@@ -1549,6 +1845,7 @@ def main(argv=None):
         retain_count=args.retain_count,
         force_lock=args.force_lock,
         resume=args.resume,
+        sentry_enabled=sentry_state["enabled"],
         log_format=args.log_format,
     )
     compatibility_report = emit_runtime_compatibility(logger)
@@ -1572,8 +1869,19 @@ def main(argv=None):
             replaced_stale=lock_info["replaced_stale"],
             replaced_forced=lock_info["replaced_forced"],
         )
-        token = resolve_token(args.token_env, logger=logger)
+        token = resolve_token(
+            args.token_env,
+            provider=args.provider,
+            auth_profile=args.auth_profile,
+            logger=logger,
+        )
         sensitive_values.append(token)
+        args.username = resolve_username(
+            args.username,
+            args.provider,
+            auth_profile=args.auth_profile,
+            logger=logger,
+        )
         provider = create_provider(args, token)
         if not provider.auth_ok():
             message = provider.auth_error or "Unknown authentication error."
@@ -1646,6 +1954,19 @@ def main(argv=None):
             f"mode_duration_ms={stats['mode_duration_ms']}"
         )
     except RepoDownloaderError as exc:
+        sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)
+        logger.event(
+            "run.finish",
+            outcome="failed",
+            level="ERROR",
+            provider=args.provider,
+            error=sanitized_error,
+        )
+        emit_text(logger, f"[ERROR] {sanitized_error}")
+        exit_code = 1
+        capture_exception(exc)
+    except Exception as exc:  # pragma: no cover  # pylint: disable=broad-exception-caught
+        capture_exception(exc)
         sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)
         logger.event(
             "run.finish",

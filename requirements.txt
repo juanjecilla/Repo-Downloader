@@ -2,3 +2,6 @@ GitPython
 requests
 PyYAML
 tomli; python_version < "3.11"
+keyring
+platformdirs
+sentry-sdk
