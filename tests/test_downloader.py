@@ -1313,5 +1313,372 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(payload["mode_duration_ms"], loaded["mode_duration_ms"])
 
 
+    # --- classify_repository_failure ---
+
+    def test_classify_repository_failure_auth_error(self):
+        from utils.errors import RemoteAPIError
+
+        exc = AuthenticationError("bad creds")
+        self.assertEqual("auth", downloader.classify_repository_failure(exc))
+
+        exc_api = RemoteAPIError("not found")
+        self.assertEqual("api", downloader.classify_repository_failure(exc_api))
+
+    def test_classify_repository_failure_sync_error_subtypes(self):
+        checkout_exc = RepositorySyncError("checkout failed on branch")
+        self.assertEqual("checkout", downloader.classify_repository_failure(checkout_exc))
+
+        fetch_exc = RepositorySyncError("fetch remote failed")
+        self.assertEqual("fetch", downloader.classify_repository_failure(fetch_exc))
+
+        clone_exc = RepositorySyncError("cloning repository")
+        self.assertEqual("clone", downloader.classify_repository_failure(clone_exc))
+
+        other_exc = RepositorySyncError("unexpected mirror error")
+        self.assertEqual("other", downloader.classify_repository_failure(other_exc))
+
+    def test_classify_repository_failure_key_type_value_errors(self):
+        self.assertEqual("api", downloader.classify_repository_failure(KeyError("x")))
+        self.assertEqual("api", downloader.classify_repository_failure(TypeError("y")))
+        self.assertEqual("api", downloader.classify_repository_failure(ValueError("z")))
+
+    def test_classify_repository_failure_generic_exception(self):
+        self.assertEqual("other", downloader.classify_repository_failure(RuntimeError("boom")))
+
+    # --- format_failure_counters ---
+
+    def test_format_failure_counters_with_non_zero_values(self):
+        counters = downloader.make_failure_counters()
+        counters["auth"] = 2
+        counters["clone"] = 1
+        result = downloader.format_failure_counters(counters)
+        self.assertIn("auth=2", result)
+        self.assertIn("clone=1", result)
+
+    def test_format_failure_counters_all_zero_returns_none(self):
+        counters = downloader.make_failure_counters()
+        self.assertEqual("none", downloader.format_failure_counters(counters))
+
+    # --- normalize_cli_list ---
+
+    def test_normalize_cli_list_empty_input(self):
+        self.assertEqual([], downloader.normalize_cli_list([]))
+        self.assertEqual([], downloader.normalize_cli_list(None))
+
+    def test_normalize_cli_list_comma_separated(self):
+        result = downloader.normalize_cli_list(["a,b", " c , d "])
+        self.assertEqual(["a", "b", "c", "d"], result)
+
+    # --- get_default_branch_name ---
+
+    def test_get_default_branch_name_from_mainbranch_dict(self):
+        repo = {"mainbranch": {"name": "main"}}
+        self.assertEqual("main", downloader.get_default_branch_name(repo))
+
+    def test_get_default_branch_name_from_default_branch_dict(self):
+        repo = {"default_branch": {"name": "master"}}
+        self.assertEqual("master", downloader.get_default_branch_name(repo))
+
+    def test_get_default_branch_name_from_default_branch_string(self):
+        repo = {"default_branch": "develop"}
+        self.assertEqual("develop", downloader.get_default_branch_name(repo))
+
+    def test_get_default_branch_name_returns_none_for_missing(self):
+        self.assertIsNone(downloader.get_default_branch_name({}))
+        self.assertIsNone(downloader.get_default_branch_name(None))
+        self.assertIsNone(downloader.get_default_branch_name("string"))
+
+    # --- select_working_branches ---
+
+    def test_select_working_branches_empty_returns_empty(self):
+        result = downloader.select_working_branches(
+            branches=[],
+            explicit_branch_names=[],
+            branch_patterns=[],
+        )
+        self.assertEqual([], result)
+
+    def test_select_working_branches_default_only_no_default_name(self):
+        branches = [{"name": "main"}]
+        result = downloader.select_working_branches(
+            branches=branches,
+            explicit_branch_names=[],
+            branch_patterns=[],
+            default_branch_only=True,
+            default_branch_name=None,
+        )
+        self.assertEqual([], result)
+
+    def test_select_working_branches_no_filters_returns_all(self):
+        branches = [{"name": "main"}, {"name": "dev"}]
+        result = downloader.select_working_branches(
+            branches=branches,
+            explicit_branch_names=[],
+            branch_patterns=[],
+        )
+        self.assertEqual(branches, result)
+
+    def test_select_working_branches_skips_branch_without_name(self):
+        branches = [{"name": "main"}, {}, {"name": "dev"}]
+        result = downloader.select_working_branches(
+            branches=branches,
+            explicit_branch_names=["main", "dev"],
+            branch_patterns=[],
+        )
+        self.assertEqual(["main", "dev"], [b["name"] for b in result])
+
+    # --- emit_runtime_compatibility warnings ---
+
+    def test_emit_runtime_compatibility_warns_on_unsupported_python(self):
+        class _CapturingLogger:
+            def __init__(self):
+                self.texts = []
+
+            def event(self, *_args, **_kwargs):
+                return {}
+
+            def emit_text(self, message):
+                self.texts.append(message)
+
+        logger = _CapturingLogger()
+        with patch(
+            "downloader.build_runtime_compatibility_report",
+            return_value={
+                "python_version": "3.7.9",
+                "minimum_python_version": "3.8",
+                "python_supported": False,
+                "platform": "linux",
+                "platform_supported": True,
+                "git_version": "2.39.0",
+                "minimum_git_version": "2.30.0",
+                "git_supported": True,
+            },
+        ):
+            downloader.emit_runtime_compatibility(logger)
+
+        self.assertTrue(any("[WARN]" in t and "Python" in t for t in logger.texts))
+
+    def test_emit_runtime_compatibility_warns_on_unsupported_platform(self):
+        class _CapturingLogger:
+            def __init__(self):
+                self.texts = []
+
+            def event(self, *_args, **_kwargs):
+                return {}
+
+            def emit_text(self, message):
+                self.texts.append(message)
+
+        logger = _CapturingLogger()
+        with patch(
+            "downloader.build_runtime_compatibility_report",
+            return_value={
+                "python_version": "3.11.0",
+                "minimum_python_version": "3.8",
+                "python_supported": True,
+                "platform": "freebsd",
+                "platform_supported": False,
+                "git_version": "2.39.0",
+                "minimum_git_version": "2.30.0",
+                "git_supported": True,
+            },
+        ):
+            downloader.emit_runtime_compatibility(logger)
+
+        self.assertTrue(any("[WARN]" in t and "platform" in t for t in logger.texts))
+
+    def test_emit_runtime_compatibility_warns_on_missing_git(self):
+        class _CapturingLogger:
+            def __init__(self):
+                self.texts = []
+
+            def event(self, *_args, **_kwargs):
+                return {}
+
+            def emit_text(self, message):
+                self.texts.append(message)
+
+        logger = _CapturingLogger()
+        with patch(
+            "downloader.build_runtime_compatibility_report",
+            return_value={
+                "python_version": "3.11.0",
+                "minimum_python_version": "3.8",
+                "python_supported": True,
+                "platform": "linux",
+                "platform_supported": True,
+                "git_version": None,
+                "minimum_git_version": "2.30.0",
+                "git_supported": False,
+            },
+        ):
+            downloader.emit_runtime_compatibility(logger)
+
+        self.assertTrue(any("[WARN]" in t and "git" in t.lower() for t in logger.texts))
+
+    def test_emit_runtime_compatibility_warns_on_old_git(self):
+        class _CapturingLogger:
+            def __init__(self):
+                self.texts = []
+
+            def event(self, *_args, **_kwargs):
+                return {}
+
+            def emit_text(self, message):
+                self.texts.append(message)
+
+        logger = _CapturingLogger()
+        with patch(
+            "downloader.build_runtime_compatibility_report",
+            return_value={
+                "python_version": "3.11.0",
+                "minimum_python_version": "3.8",
+                "python_supported": True,
+                "platform": "linux",
+                "platform_supported": True,
+                "git_version": "2.18.0",
+                "minimum_git_version": "2.30.0",
+                "git_supported": False,
+            },
+        ):
+            downloader.emit_runtime_compatibility(logger)
+
+        self.assertTrue(any("[WARN]" in t and "Git" in t for t in logger.texts))
+
+    # --- write_summary_report subdirectory creation ---
+
+    def test_write_summary_report_creates_parent_directory(self):
+        payload = {
+            "provider": "github",
+            "mode": "mirror",
+            "processed": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "failure_types": downloader.make_failure_counters(),
+            "mode_duration_ms": {"mirror": 10, "working": 0},
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            summary_path = os.path.join(tmp_dir, "subdir", "nested", "summary.json")
+            written_path = downloader.write_summary_report(summary_path, payload)
+            self.assertTrue(os.path.isfile(written_path))
+            with open(written_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+        self.assertEqual("github", loaded["provider"])
+
+    # --- run_list_backups_command with no entries ---
+
+    def test_run_list_backups_command_no_entries(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            args = SimpleNamespace(output_dir=tmp_dir)
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                exit_code = downloader.run_list_backups_command(args)
+        self.assertEqual(0, exit_code)
+        self.assertIn("No backups found", buffer.getvalue())
+
+    # --- run_validate_restore_command error paths ---
+
+    def test_run_validate_restore_command_error_on_missing_backup(self):
+        args = SimpleNamespace(backup_path="/nonexistent/path", restore_dir="/tmp/restore-test")
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            exit_code = downloader.run_validate_restore_command(args)
+        self.assertEqual(1, exit_code)
+        self.assertIn("[ERROR]", buffer.getvalue())
+
+    def test_run_validate_restore_command_success_path(self):
+        import types
+
+        fake_git_module = types.SimpleNamespace()
+        fake_git_exc_module = types.SimpleNamespace()
+
+        class _FakeRepo:
+            heads = [types.SimpleNamespace(name="main")]
+
+            @staticmethod
+            def clone_from(_src, _dst):
+                return _FakeRepo()
+
+            class remotes:
+                class origin:
+                    refs = [types.SimpleNamespace(name="origin/main")]
+
+        fake_git_module.Repo = _FakeRepo
+        fake_git_exc_module.GitError = Exception
+
+        def fake_import(module_name):
+            if module_name == "git":
+                return fake_git_module
+            if module_name == "git.exc":
+                return fake_git_exc_module
+            raise ModuleNotFoundError(module_name)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            backup_path = os.path.join(tmp_dir, "repo.git")
+            restore_dir = os.path.join(tmp_dir, "restore")
+            os.makedirs(backup_path, exist_ok=True)
+            args = SimpleNamespace(backup_path=backup_path, restore_dir=restore_dir)
+
+            buffer = io.StringIO()
+            with patch("downloader.importlib.import_module", side_effect=fake_import):
+                with redirect_stdout(buffer):
+                    exit_code = downloader.run_validate_restore_command(args)
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("Restore validation succeeded", buffer.getvalue())
+
+    # --- _extract_user_hint ---
+
+    def test_extract_user_hint_from_various_keys(self):
+        self.assertEqual("alice", downloader._extract_user_hint({"username": "alice"}))  # pylint: disable=protected-access
+        self.assertEqual("bob", downloader._extract_user_hint({"login": "bob"}))  # pylint: disable=protected-access
+        self.assertEqual("42", downloader._extract_user_hint({"id": 42}))  # pylint: disable=protected-access
+        self.assertEqual("unknown", downloader._extract_user_hint({}))  # pylint: disable=protected-access
+        self.assertEqual("unknown", downloader._extract_user_hint("not-a-dict"))  # pylint: disable=protected-access
+
+    # --- _load_yaml_config error paths ---
+
+    def test_load_yaml_config_oserror_raises_config_error(self):
+        from utils.errors import ProviderConfigurationError
+
+        with patch("builtins.open", side_effect=OSError("permission denied")):
+            with self.assertRaises(ProviderConfigurationError) as ctx:
+                downloader._load_yaml_config("/fake/path.yaml")  # pylint: disable=protected-access
+        self.assertIn("Failed reading", str(ctx.exception))
+
+    def test_load_yaml_config_yaml_error_raises_config_error(self):
+        import yaml
+        from utils.errors import ProviderConfigurationError
+
+        bad_yaml = io.StringIO("key: [\nunclosed bracket")
+        with patch("builtins.open", return_value=bad_yaml):
+            with self.assertRaises((ProviderConfigurationError, yaml.YAMLError)):
+                downloader._load_yaml_config("/fake/path.yaml")  # pylint: disable=protected-access
+
+    # --- _emit_auth_guidance ---
+
+    def test_emit_auth_guidance_known_provider_prints_url(self):
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            with patch("webbrowser.open") as mock_browser:
+                downloader._emit_auth_guidance("bitbucket", no_open_browser=False)  # pylint: disable=protected-access
+        output = buffer.getvalue()
+        self.assertIn("bitbucket", output.lower())
+        mock_browser.assert_called_once()
+
+    def test_emit_auth_guidance_no_browser_skips_open(self):
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            with patch("webbrowser.open") as mock_browser:
+                downloader._emit_auth_guidance("bitbucket", no_open_browser=True)  # pylint: disable=protected-access
+        mock_browser.assert_not_called()
+
+    def test_emit_auth_guidance_unknown_provider_does_not_raise(self):
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            downloader._emit_auth_guidance("unknown-provider", no_open_browser=True)  # pylint: disable=protected-access
+        self.assertIn("unknown-provider", buffer.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
