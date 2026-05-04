@@ -253,5 +253,105 @@ class TestGitLabSource(unittest.TestCase):
         self.assertIn("Authentication failed", source.auth_error)
 
 
+@unittest.skipUnless(REQUESTS_AVAILABLE, "requests is required for provider tests")
+class TestRequestJsonErrorPaths(unittest.TestCase):
+    """Exercise _request_json error branches common to all providers."""
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_network_error_raises_remote_api_error(self, session_cls):
+        import requests as _requests
+
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "tester"}),
+            _FakeResponse(200, {"username": "tester"}),
+        ]
+        # First call succeeds (auth), second call raises network error
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "tester"}),
+            _requests.ConnectionError("timeout"),
+        ]
+        session_cls.return_value = session
+
+        from utils.errors import RemoteAPIError
+
+        source = BitbucketSource("user", "token")
+        self.assertTrue(source.auth_ok())
+
+        with self.assertRaises(RemoteAPIError):
+            source.list_branches("acme/repo")
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_http_400_error_raises_remote_api_error(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "tester"}),
+            _FakeResponse(404, {"error": "not found"}),
+        ]
+        session_cls.return_value = session
+
+        from utils.errors import RemoteAPIError
+
+        source = BitbucketSource("user", "token")
+        with self.assertRaises(RemoteAPIError):
+            source.get_repository("acme", "missing")
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_invalid_json_raises_remote_api_error(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "tester"}),
+            _FakeResponse(200, ValueError("bad json")),
+        ]
+        session_cls.return_value = session
+
+        from utils.errors import RemoteAPIError
+
+        source = BitbucketSource("user", "token")
+        with self.assertRaises(RemoteAPIError):
+            source.get_repository("acme", "repo")
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_paginated_endpoint_missing_values_key_raises(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "tester"}),
+            _FakeResponse(200, {"no_values": True}),
+        ]
+        session_cls.return_value = session
+
+        from utils.errors import RemoteAPIError
+
+        source = BitbucketSource("user", "token")
+        with self.assertRaises(RemoteAPIError):
+            source.list_branches("acme/repo")
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_list_branches_github(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"login": "user", "id": 1}),
+            _FakeResponse(200, [{"name": "main"}, {"name": "develop"}]),
+        ]
+        session_cls.return_value = session
+
+        source = GitHubSource("user", "token")
+        branches = source.list_branches("acme/repo")
+        self.assertEqual(2, len(branches))
+
+    @patch("data.source.remote_sources.requests.Session")
+    def test_list_branches_gitlab(self, session_cls):
+        session = Mock()
+        session.get.side_effect = [
+            _FakeResponse(200, {"username": "user", "id": 1}),
+            _FakeResponse(200, [{"name": "main"}]),
+        ]
+        session_cls.return_value = session
+
+        source = GitLabSource("user", "token")
+        branches = source.list_branches("acme/service")
+        self.assertEqual(1, len(branches))
+
+
 if __name__ == "__main__":
     unittest.main()
