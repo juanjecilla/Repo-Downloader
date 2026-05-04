@@ -69,6 +69,78 @@ class TestAuthStore(unittest.TestCase):
             deleted = auth_store.delete_profile_secret("github", "default")
             self.assertFalse(deleted)
 
+    def test_set_auth_profile_without_username_or_hint(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = f"{tmp_dir}/profiles.json"
+            record = auth_store.set_auth_profile("bitbucket", path=path)
+            self.assertNotIn("username", record)
+            self.assertNotIn("user_hint", record)
+
+    def test_delete_auth_profile_returns_false_for_nonexistent_key(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = f"{tmp_dir}/profiles.json"
+            result = auth_store.delete_auth_profile("github", "missing", path=path)
+            self.assertFalse(result)
+
+    def test_load_payload_handles_corrupted_json(self):
+        import os
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("{not valid json")
+            path = f.name
+        try:
+            payload = auth_store._load_payload(path=path)  # noqa: SLF001
+            self.assertEqual({"profiles": {}}, payload)
+        finally:
+            os.unlink(path)
+
+    def test_load_payload_handles_non_dict_json(self):
+        import json
+        import os
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump([1, 2, 3], f)
+            path = f.name
+        try:
+            payload = auth_store._load_payload(path=path)  # noqa: SLF001
+            self.assertEqual({"profiles": {}}, payload)
+        finally:
+            os.unlink(path)
+
+    def test_load_payload_handles_missing_profiles_key(self):
+        import json
+        import os
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"other": "data"}, f)
+            path = f.name
+        try:
+            payload = auth_store._load_payload(path=path)  # noqa: SLF001
+            self.assertIn("profiles", payload)
+            self.assertIsInstance(payload["profiles"], dict)
+        finally:
+            os.unlink(path)
+
+    def test_profile_store_path_returns_string(self):
+        path = auth_store.profile_store_path()
+        self.assertIsInstance(path, str)
+        self.assertTrue(path.endswith("auth-profiles.json"))
+
+    def test_get_keyring_module_raises_when_not_installed(self):
+        import sys
+
+        from utils.errors import ProviderConfigurationError
+
+        with patch.dict(sys.modules, {"keyring": None}):
+            with self.assertRaises(ProviderConfigurationError):
+                auth_store._get_keyring_module()  # noqa: SLF001
+
+    def test_set_profile_secret_raises_for_empty_secret(self):
+        from utils.errors import ProviderConfigurationError
+
+        with self.assertRaises(ProviderConfigurationError):
+            auth_store.set_profile_secret("github", "default", secret="")
+
 
 if __name__ == "__main__":
     unittest.main()

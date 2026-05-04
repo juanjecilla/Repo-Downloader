@@ -44,6 +44,28 @@ class TestCompatibility(unittest.TestCase):
         self.assertEqual("unknown", compatibility.version_tuple_to_text(None))
         self.assertEqual("unknown", compatibility.version_tuple_to_text(()))
 
+    def test_normalize_version_pads_short_tuple(self):
+        result = compatibility._normalize_version((2, 30))  # noqa: SLF001
+        self.assertEqual((2, 30, 0), result)
+
+    def test_parse_git_version_returns_none_for_falsy_input(self):
+        self.assertIsNone(compatibility.parse_git_version(None))
+        self.assertIsNone(compatibility.parse_git_version(""))
+
+    def test_detect_git_version_returns_none_when_git_missing(self):
+        import subprocess
+        from unittest.mock import patch
+
+        with patch("subprocess.check_output", side_effect=OSError("not found")):
+            raw_output, version = compatibility.detect_git_version()
+
+        self.assertIsNone(raw_output)
+        self.assertIsNone(version)
+
+    def test_is_git_supported_returns_false_for_none(self):
+        self.assertFalse(compatibility.is_git_supported(None))
+        self.assertFalse(compatibility.is_git_supported(()))
+
 
 if __name__ == "__main__":
     unittest.main()
