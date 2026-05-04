@@ -1,5 +1,8 @@
 # Repo-Downloader
 
+[![CI](https://github.com/juanjecilla/Repo-Downloader/actions/workflows/pylint.yml/badge.svg?branch=develop)](https://github.com/juanjecilla/Repo-Downloader/actions/workflows/pylint.yml)
+[![codecov](https://codecov.io/gh/juanjecilla/Repo-Downloader/branch/develop/graph/badge.svg)](https://codecov.io/gh/juanjecilla/Repo-Downloader)
+
 Repo-Downloader is a Python CLI tool for backing up remote repositories, with Bitbucket support hardened for repeatable backups.
 
 ## Features

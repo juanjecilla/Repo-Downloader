@@ -6,11 +6,16 @@ source =
     utils
 omit =
     tests/*
+    */__pycache__/*
 
 [report]
 show_missing = True
 skip_covered = False
 precision = 2
+fail_under = 75
 
 [xml]
 output = coverage.xml
+
+[html]
+directory = htmlcov
