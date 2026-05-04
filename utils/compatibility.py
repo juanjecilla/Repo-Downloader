@@ -4,7 +4,6 @@ import re
 import subprocess
 import sys
 
-
 SUPPORTED_PLATFORM_KEYS = ("linux", "darwin", "win32")
 SUPPORTED_PLATFORM_LABELS = ("linux", "macos", "windows")
 MINIMUM_PYTHON_VERSION = (3, 8)

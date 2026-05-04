@@ -34,7 +34,7 @@ def _load_payload(path=None):
         return {"profiles": {}}
 
     try:
-        with open(store_path, "r", encoding="utf-8") as handle:
+        with open(store_path, encoding="utf-8") as handle:
             payload = json.load(handle)
     except (OSError, TypeError, ValueError):
         return {"profiles": {}}
@@ -130,8 +130,7 @@ def set_profile_secret(provider, profile="default", secret=None):
         keyring.set_password(KEYRING_SERVICE, key_name, secret)
     except (keyring.errors.KeyringError, RuntimeError) as exc:  # pragma: no cover
         raise ProviderConfigurationError(
-            "Failed saving credential to keyring. "
-            "Ensure a supported keyring backend is available."
+            "Failed saving credential to keyring. Ensure a supported keyring backend is available."
         ) from exc
 
 
@@ -144,6 +143,4 @@ def delete_profile_secret(provider, profile="default"):
     except keyring.errors.PasswordDeleteError:
         return False
     except (keyring.errors.KeyringError, RuntimeError) as exc:  # pragma: no cover
-        raise ProviderConfigurationError(
-            "Failed deleting credential from keyring."
-        ) from exc
+        raise ProviderConfigurationError("Failed deleting credential from keyring.") from exc

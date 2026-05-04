@@ -6,7 +6,11 @@ from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
 
 from data.source.provider_interface import RemoteProvider
-from utils.errors import AuthenticationError, ProviderNotImplementedError, RemoteAPIError
+from utils.errors import (
+    AuthenticationError,
+    ProviderNotImplementedError,
+    RemoteAPIError,
+)
 from utils.repo_utils import filter_repositories_by_workspace
 
 
@@ -48,8 +52,7 @@ class BitbucketSource(RemoteProvider):
 
         if response.status_code in (401, 403):
             raise AuthenticationError(
-                f"Authentication failed for '{url}' "
-                f"(status {response.status_code})"
+                f"Authentication failed for '{url}' (status {response.status_code})"
             )
         if response.status_code >= 400:
             raise RemoteAPIError(f"Request to '{url}' failed with status {response.status_code}")
@@ -155,8 +158,7 @@ class GitHubSource(RemoteProvider):
 
         if response.status_code in (401, 403):
             raise AuthenticationError(
-                f"Authentication failed for '{url}' "
-                f"(status {response.status_code})"
+                f"Authentication failed for '{url}' (status {response.status_code})"
             )
         if response.status_code >= 400:
             raise RemoteAPIError(f"Request to '{url}' failed with status {response.status_code}")
@@ -182,9 +184,7 @@ class GitHubSource(RemoteProvider):
                 raise RemoteAPIError(f"Invalid JSON received from '{next_url}'") from exc
 
             if not isinstance(page_values, list):
-                raise RemoteAPIError(
-                    f"Paginated endpoint '{next_url}' returned a non-list payload"
-                )
+                raise RemoteAPIError(f"Paginated endpoint '{next_url}' returned a non-list payload")
 
             values.extend(page_values)
             next_url = response.links.get("next", {}).get("url")
@@ -319,8 +319,7 @@ class GitLabSource(RemoteProvider):
 
         if response.status_code in (401, 403):
             raise AuthenticationError(
-                f"Authentication failed for '{url}' "
-                f"(status {response.status_code})"
+                f"Authentication failed for '{url}' (status {response.status_code})"
             )
         if response.status_code >= 400:
             raise RemoteAPIError(f"Request to '{url}' failed with status {response.status_code}")
@@ -348,9 +347,7 @@ class GitLabSource(RemoteProvider):
             except ValueError as exc:
                 raise RemoteAPIError(f"Invalid JSON received from '{url}'") from exc
             if not isinstance(page_values, list):
-                raise RemoteAPIError(
-                    f"Paginated endpoint '{url}' returned a non-list payload"
-                )
+                raise RemoteAPIError(f"Paginated endpoint '{url}' returned a non-list payload")
 
             values.extend(page_values)
             next_page = response.headers.get("X-Next-Page")

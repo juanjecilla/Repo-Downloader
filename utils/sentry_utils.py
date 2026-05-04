@@ -10,13 +10,11 @@ _SENTRY_STATE = {"enabled": False}
 def resolve_sentry_settings(args=None):
     args = args or object()
     dsn = getattr(args, "sentry_dsn", None) or os.environ.get("REPO_DOWNLOADER_SENTRY_DSN")
-    environment = (
-        getattr(args, "sentry_environment", None)
-        or os.environ.get("REPO_DOWNLOADER_SENTRY_ENVIRONMENT")
+    environment = getattr(args, "sentry_environment", None) or os.environ.get(
+        "REPO_DOWNLOADER_SENTRY_ENVIRONMENT"
     )
-    release = (
-        getattr(args, "sentry_release", None)
-        or os.environ.get("REPO_DOWNLOADER_SENTRY_RELEASE")
+    release = getattr(args, "sentry_release", None) or os.environ.get(
+        "REPO_DOWNLOADER_SENTRY_RELEASE"
     )
     return {
         "dsn": dsn,

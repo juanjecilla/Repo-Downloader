@@ -1,6 +1,5 @@
 import re
 
-
 REDACTED_TEXT = "***REDACTED***"
 _REDACTION_PATTERNS = (
     re.compile(r"(?i)(token|password|secret)\s*[:=]\s*([^\s,;]+)"),

@@ -13,6 +13,14 @@ import time
 import webbrowser
 
 from utils import url_utils
+from utils.auth_store import (
+    delete_auth_profile,
+    delete_profile_secret,
+    get_auth_profile,
+    get_profile_secret,
+    set_auth_profile,
+    set_profile_secret,
+)
 from utils.compatibility import (
     SUPPORTED_PLATFORM_LABELS,
     build_runtime_compatibility_report,
@@ -23,19 +31,11 @@ from utils.errors import (
     ProviderNotImplementedError,
     RemoteAPIError,
     RepoDownloaderError,
-    redact_sensitive_text,
-    RunLockError,
     RepositorySyncError,
+    RunLockError,
+    redact_sensitive_text,
 )
 from utils.log_utils import NullLogger, RunLogger
-from utils.auth_store import (
-    delete_auth_profile,
-    delete_profile_secret,
-    get_auth_profile,
-    get_profile_secret,
-    set_auth_profile,
-    set_profile_secret,
-)
 from utils.repo_utils import (
     acquire_run_lock,
     build_backup_paths,
@@ -49,8 +49,8 @@ from utils.repo_utils import (
     normalize_repo_patterns,
     parse_repository_entry,
     plan_retention_deletions,
-    remove_checkpoint,
     release_run_lock,
+    remove_checkpoint,
     repository_matches_filters,
     save_checkpoint,
 )
@@ -243,19 +243,13 @@ def build_parser():
         "--include",
         action="append",
         default=None,
-        help=(
-            "Include repository full-name patterns (glob). "
-            "Can be repeated or comma-separated."
-        ),
+        help=("Include repository full-name patterns (glob). Can be repeated or comma-separated."),
     )
     parser.add_argument(
         "--exclude",
         action="append",
         default=None,
-        help=(
-            "Exclude repository full-name patterns (glob). "
-            "Can be repeated or comma-separated."
-        ),
+        help=("Exclude repository full-name patterns (glob). Can be repeated or comma-separated."),
     )
     parser.add_argument(
         "--branch",
@@ -406,7 +400,7 @@ def _load_yaml_config(config_path):
         ) from exc
 
     try:
-        with open(config_path, "r", encoding="utf-8") as config_file:
+        with open(config_path, encoding="utf-8") as config_file:
             payload = yaml.safe_load(config_file) or {}
     except OSError as exc:
         raise ProviderConfigurationError(
@@ -426,9 +420,7 @@ def load_config_file(config_path):
     elif extension in (".yaml", ".yml"):
         payload = _load_yaml_config(resolved_path)
     else:
-        raise ProviderConfigurationError(
-            "Config file extension must be .toml, .yaml, or .yml."
-        )
+        raise ProviderConfigurationError("Config file extension must be .toml, .yaml, or .yml.")
 
     if not isinstance(payload, dict):
         raise ProviderConfigurationError(f"Config file '{resolved_path}' must contain a mapping.")
@@ -1029,8 +1021,7 @@ def sync_working(
             continue
         emit_text(
             logger,
-            f"\t\tChecking out branch {branch_name} "
-            f"{branch_index + 1}/{len(selected_branches)}",
+            f"\t\tChecking out branch {branch_name} {branch_index + 1}/{len(selected_branches)}",
         )
         branch_started_at = time.monotonic()
         try:
@@ -1064,8 +1055,7 @@ def sync_working(
 
     if checkout_failures:
         raise RepositorySyncError(
-            "One or more branch checkout operations failed: "
-            + ", ".join(checkout_failures)
+            "One or more branch checkout operations failed: " + ", ".join(checkout_failures)
         )
 
 
@@ -1571,9 +1561,9 @@ def perform_restore_validation(backup_path, restore_dir):
 
     try:
         git_module = importlib.import_module("git")
-        repo_class = getattr(git_module, "Repo")
+        repo_class = git_module.Repo
         git_exc_module = importlib.import_module("git.exc")
-        git_error_class = getattr(git_exc_module, "GitError")
+        git_error_class = git_exc_module.GitError
     except ModuleNotFoundError as exc:
         raise ProviderConfigurationError(
             f"Missing dependency '{exc.name}' required for restore validation. "
@@ -1767,8 +1757,7 @@ def main(argv=None):
 
     if args.command == "auth" and not args.auth_provider:
         parser.error(
-            "auth command requires provider positional argument "
-            "(bitbucket|github|gitlab)."
+            "auth command requires provider positional argument (bitbucket|github|gitlab)."
         )
     if args.command != "auth" and args.auth_provider:
         parser.error(
@@ -1891,7 +1880,7 @@ def main(argv=None):
 
         try:
             git_module = importlib.import_module("data.source.git_source")
-            git_source_class = getattr(git_module, "GitSource")
+            git_source_class = git_module.GitSource
         except ModuleNotFoundError as exc:
             raise ProviderConfigurationError(
                 f"Missing dependency '{exc.name}' required for git operations. "
@@ -1951,7 +1940,7 @@ def main(argv=None):
             f"processed={stats['processed']}, succeeded={stats['succeeded']}, "
             f"skipped={stats['skipped']}, failed={stats['failed']}, "
             f"failure_types={format_failure_counters(stats['failure_types'])}, "
-            f"mode_duration_ms={stats['mode_duration_ms']}"
+            f"mode_duration_ms={stats['mode_duration_ms']}",
         )
     except RepoDownloaderError as exc:
         sanitized_error = sanitize_error_text(str(exc), sensitive_values=sensitive_values)

@@ -5,7 +5,6 @@ from unittest.mock import Mock, patch
 from data.source.provider_interface import RemoteProvider
 from utils.errors import RemoteAPIError
 
-
 REQUESTS_AVAILABLE = importlib.util.find_spec("requests") is not None
 
 
@@ -25,7 +24,11 @@ class _FakeResponse:
 @unittest.skipUnless(REQUESTS_AVAILABLE, "requests is required for provider contract tests")
 class TestProviderContract(unittest.TestCase):
     def test_provider_classes_implement_contract(self):
-        from data.source.remote_sources import BitbucketSource, GitHubSource, GitLabSource
+        from data.source.remote_sources import (
+            BitbucketSource,
+            GitHubSource,
+            GitLabSource,
+        )
 
         for provider_class in (BitbucketSource, GitHubSource, GitLabSource):
             self.assertTrue(issubclass(provider_class, RemoteProvider))
@@ -40,7 +43,11 @@ class TestProviderContract(unittest.TestCase):
 
     @patch("data.source.remote_sources.requests.Session")
     def test_providers_map_auth_failure_consistently(self, session_cls):
-        from data.source.remote_sources import BitbucketSource, GitHubSource, GitLabSource
+        from data.source.remote_sources import (
+            BitbucketSource,
+            GitHubSource,
+            GitLabSource,
+        )
 
         for provider_class in (BitbucketSource, GitHubSource, GitLabSource):
             with self.subTest(provider=provider_class.provider_name):
@@ -53,7 +60,11 @@ class TestProviderContract(unittest.TestCase):
 
     @patch("data.source.remote_sources.requests.Session")
     def test_providers_support_paginated_repository_listing(self, session_cls):
-        from data.source.remote_sources import BitbucketSource, GitHubSource, GitLabSource
+        from data.source.remote_sources import (
+            BitbucketSource,
+            GitHubSource,
+            GitLabSource,
+        )
 
         provider_cases = (
             {
@@ -124,7 +135,11 @@ class TestProviderContract(unittest.TestCase):
 
     @patch("data.source.remote_sources.requests.Session")
     def test_providers_raise_remote_api_error_for_invalid_pagination_payload(self, session_cls):
-        from data.source.remote_sources import BitbucketSource, GitHubSource, GitLabSource
+        from data.source.remote_sources import (
+            BitbucketSource,
+            GitHubSource,
+            GitLabSource,
+        )
 
         provider_cases = (
             {

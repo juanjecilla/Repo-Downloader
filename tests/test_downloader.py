@@ -13,9 +13,9 @@ from unittest.mock import patch
 
 import downloader
 from utils.errors import (
+    REDACTED_TEXT,
     AuthenticationError,
     ProviderConfigurationError,
-    REDACTED_TEXT,
     RepositorySyncError,
     RunLockError,
 )
@@ -1254,7 +1254,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
                                         )
 
             self.assertEqual(0, exit_code)
-            with open(summary_path, "r", encoding="utf-8") as summary_file:
+            with open(summary_path, encoding="utf-8") as summary_file:
                 payload = json.load(summary_file)
             self.assertEqual(compatibility_report, payload["compatibility"])
 
@@ -1306,7 +1306,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         with tempfile.TemporaryDirectory() as tmp_dir:
             summary_path = os.path.join(tmp_dir, "summary.json")
             written_path = downloader.write_summary_report(summary_path, payload)
-            with open(written_path, "r", encoding="utf-8") as summary_file:
+            with open(written_path, encoding="utf-8") as summary_file:
                 loaded = json.load(summary_file)
 
         self.assertEqual(payload["provider"], loaded["provider"])

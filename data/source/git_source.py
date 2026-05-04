@@ -1,5 +1,6 @@
 import os
 import shlex
+
 from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError, NoSuchPathError
 

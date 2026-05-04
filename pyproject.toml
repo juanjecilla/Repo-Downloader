@@ -28,7 +28,44 @@ include-package-data = true
 [tool.setuptools.packages.find]
 include = ["data*", "utils*"]
 
+[project.optional-dependencies]
+dev = [
+  "ruff",
+  "mypy",
+  "types-requests",
+  "types-PyYAML",
+  "bandit[toml]",
+  "pip-audit",
+  "pre-commit",
+  "pytest",
+  "pytest-cov",
+]
+
 [tool.setuptools_scm]
 fallback_version = "0.0.0"
 version_scheme = "no-guess-dev"
 local_scheme = "no-local-version"
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+  "E501",    # line length handled by formatter
+  "B008",    # function calls in default args (common in CLI parsers)
+  "UP006",   # Dict→dict annotations (requires 3.9+ or __future__)
+  "UP007",   # Union[X,Y]→X|Y annotations (requires 3.10+ or __future__)
+  "UP045",   # Optional→X|None annotations (requires 3.10+ or __future__)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.8"
+ignore_missing_imports = true
+warn_unused_ignores = false
+warn_return_any = false
