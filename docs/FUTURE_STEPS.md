@@ -127,6 +127,28 @@ Progress:
 - `F025` completed.
 - `F026` completed.
 
+## Phase 7: Code Quality and Test Coverage (P7)
+Goal: harden static analysis, enforce coverage gates, and prevent quality regressions.
+
+1. Add ruff linting + formatting as primary style enforcer (`F027`).
+2. Add mypy type checking with `ignore_missing_imports = true` as starting config (`F028`).
+3. Add pre-commit hooks (ruff, mypy, bandit) to catch issues before CI (`F029`).
+4. Add bandit security scanning and pip-audit dependency audit to CI (`F030`).
+5. Enforce ≥ 80% branch coverage via Codecov blocking gate (`F031`).
+6. Decompose `downloader.py` (2014 lines) into focused submodules (`F032`).
+7. Add CHANGELOG automation via git-cliff or commitizen (`F033`).
+
+Definition of done:
+- `ruff check .` and `ruff format --check .` pass in CI with zero violations.
+- `mypy` reports no errors on core modules.
+- `bandit` and `pip-audit` run in a dedicated CI security job.
+- Coverage badge shows ≥ 80% and Codecov blocks PRs that drop below threshold.
+- `downloader.py` split into at least `cli.py` (argument parsing), `orchestrator.py` (run loop), and `commands/` package.
+- `CHANGELOG.md` is generated from conventional commits.
+
+Progress:
+- `F027`–`F033` pending.
+
 ## File Ownership Map For Future Work
 - CLI orchestration: `downloader.py`
 - Provider contract and implementations: `data/source/provider_interface.py`, `data/source/remote_sources.py`

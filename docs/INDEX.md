@@ -9,6 +9,9 @@ Documentation-first policy applies for roadmap features in the current cycle.
 - `docs/AUTH_PROFILES.md`: auth command UX, profile schema, keyring storage model, and precedence rules.
 - `docs/OBSERVABILITY.md`: Codecov thresholds, coverage upload policy, and Sentry runtime contract.
 
+## Quality and Technical Debt
+- `docs/KNOWN_ISSUES.md`: known quality gaps, design limitations, and technical debt with fix references.
+
 ## Planning and Backlog Docs
 - `docs/IMPLEMENTATION_PLAN.md`: current implementation plan, milestones, risks, rollout, and acceptance gates.
 - `docs/RELEASING.md`: SemVer policy, tag flow, PyPI/TestPyPI pipeline, and rollback procedure.
