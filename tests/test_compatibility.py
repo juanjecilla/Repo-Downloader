@@ -55,7 +55,7 @@ class TestCompatibility(unittest.TestCase):
     def test_detect_git_version_returns_none_when_git_missing(self):
         from unittest.mock import patch
 
-        with patch("subprocess.check_output", side_effect=OSError("not found")):
+        with patch("utils.compatibility.subprocess.check_output", side_effect=OSError("not found")):
             raw_output, version = compatibility.detect_git_version()
 
         self.assertIsNone(raw_output)

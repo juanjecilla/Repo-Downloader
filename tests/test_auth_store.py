@@ -138,8 +138,10 @@ class TestAuthStore(unittest.TestCase):
     def test_set_profile_secret_raises_for_empty_secret(self):
         from utils.errors import ProviderConfigurationError
 
-        with self.assertRaises(ProviderConfigurationError):
-            auth_store.set_profile_secret("github", "default", secret="")
+        fake_keyring = _FakeKeyring()
+        with patch("utils.auth_store._get_keyring_module", return_value=fake_keyring):
+            with self.assertRaises(ProviderConfigurationError):
+                auth_store.set_profile_secret("github", "default", secret="")
 
 
 if __name__ == "__main__":

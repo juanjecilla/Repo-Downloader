@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -66,21 +67,27 @@ class TestRunLoggerContextManager(unittest.TestCase):
 
 
 class TestRunLoggerEventRendering(unittest.TestCase):
+    def _make_print_capture(self):
+        captured = StringIO()
+
+        def _capture(*args, **kwargs):
+            captured.write(" ".join(str(a) for a in args) + kwargs.get("end", "\n"))
+
+        return captured, _capture
+
     def test_event_with_message_included_in_text_output(self):
         logger = RunLogger(log_format="text")
-        captured = StringIO()
-        with patch("builtins.print", lambda line: captured.write(line + "\n")):
+        captured, _capture = self._make_print_capture()
+        with patch("builtins.print", side_effect=_capture):
             record = logger.event("task.run", outcome="success", message="all done")
 
         self.assertIn("all done", captured.getvalue())
         self.assertEqual("all done", record["message"])
 
     def test_event_with_message_in_json_format(self):
-        import json
-
         logger = RunLogger(log_format="json")
-        captured = StringIO()
-        with patch("builtins.print", lambda line: captured.write(line + "\n")):
+        captured, _capture = self._make_print_capture()
+        with patch("builtins.print", side_effect=_capture):
             logger.event("json.event", outcome="ok", message="hello")
 
         line = captured.getvalue().strip()
@@ -90,8 +97,8 @@ class TestRunLoggerEventRendering(unittest.TestCase):
 
     def test_event_without_message_excludes_field(self):
         logger = RunLogger(log_format="text")
-        captured = StringIO()
-        with patch("builtins.print", lambda line: captured.write(line + "\n")):
+        captured, _capture = self._make_print_capture()
+        with patch("builtins.print", side_effect=_capture):
             record = logger.event("no.msg", outcome="ok")
 
         self.assertNotIn("message", record)
