@@ -43,7 +43,7 @@ class TestGitSourceClone(unittest.TestCase):
 
     def test_build_git_env_includes_ssh_command(self):
         source = GitSource(key_path="~/.ssh/custom_rsa")
-        env = source._build_git_env()  # noqa: SLF001
+        env = source._build_git_env()  # noqa: SLF001  # pylint: disable=protected-access
         self.assertIn("GIT_SSH_COMMAND", env)
         self.assertIn("StrictHostKeyChecking", env["GIT_SSH_COMMAND"])
 
