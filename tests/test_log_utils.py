@@ -97,7 +97,7 @@ class TestRunLoggerEventRendering(unittest.TestCase):
 
     def test_event_without_message_excludes_field(self):
         logger = RunLogger(log_format="text")
-        captured, _capture = self._make_print_capture()
+        _, _capture = self._make_print_capture()
         with patch("builtins.print", side_effect=_capture):
             record = logger.event("no.msg", outcome="ok")
 
