@@ -3,7 +3,6 @@ import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
-
 REDACTED_VALUE = "***REDACTED***"
 SENSITIVE_KEY_PARTS = ("token", "password", "secret", "ssh_key_path")
 

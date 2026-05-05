@@ -116,6 +116,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install .
-          pip install pylint
+          pip install pylint ruff "mypy>=1.10" types-requests types-PyYAML
+      - name: ruff lint
+        run: ruff check .
+      - name: ruff format check
+        run: ruff format --check .
+      - name: mypy type check
+        run: mypy downloader.py utils/ data/ --ignore-missing-imports
       - name: Analysing the code with pylint
         run: pylint $(git ls-files '*.py')

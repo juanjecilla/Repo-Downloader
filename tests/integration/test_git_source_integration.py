@@ -4,7 +4,9 @@ import unittest
 
 try:
     from git import Repo
+
     from data.source.git_source import GitSource
+
     GITPYTHON_AVAILABLE = True
 except ModuleNotFoundError:
     Repo = None

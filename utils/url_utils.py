@@ -1,5 +1,6 @@
 # pylint: disable=duplicate-code
 
+
 def get_ssh_url_from_list(url_list):
     if not url_list:
         return None

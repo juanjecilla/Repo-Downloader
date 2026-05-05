@@ -216,7 +216,7 @@ def load_checkpoint(checkpoint_path: str) -> Dict:
         return {}
 
     try:
-        with open(checkpoint_path, "r", encoding="utf-8") as checkpoint_file:
+        with open(checkpoint_path, encoding="utf-8") as checkpoint_file:
             payload = json.load(checkpoint_file)
             if isinstance(payload, dict):
                 return payload
@@ -293,7 +293,7 @@ def build_run_lock_path(output_dir: str, provider: str) -> str:
 
 def _read_lock_metadata(lock_path: str) -> Dict:
     try:
-        with open(lock_path, "r", encoding="utf-8") as lock_file:
+        with open(lock_path, encoding="utf-8") as lock_file:
             payload = json.load(lock_file)
             if isinstance(payload, dict):
                 return payload
