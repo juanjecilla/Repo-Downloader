@@ -1312,7 +1312,6 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(payload["provider"], loaded["provider"])
         self.assertEqual(payload["mode_duration_ms"], loaded["mode_duration_ms"])
 
-
     # --- classify_repository_failure ---
 
     def test_classify_repository_failure_auth_error(self):
