@@ -131,7 +131,8 @@ class TestSentryUtils(unittest.TestCase):
                 result = sentry_utils.initialize_sentry(args=None, logger=logger)
 
         self.assertFalse(result["enabled"])
-        self.assertEqual(0, len(logger.events))
+        self.assertEqual(1, len(logger.events))
+        self.assertEqual("failed", logger.events[0]["outcome"])
 
     def test_initialize_sentry_skips_logs_success_without_logger(self):
         fake_sdk = _FakeSentrySDK()

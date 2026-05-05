@@ -1312,7 +1312,6 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
         self.assertEqual(payload["provider"], loaded["provider"])
         self.assertEqual(payload["mode_duration_ms"], loaded["mode_duration_ms"])
 
-
     # --- classify_repository_failure ---
 
     def test_classify_repository_failure_auth_error(self):
@@ -1561,7 +1560,7 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
             summary_path = os.path.join(tmp_dir, "subdir", "nested", "summary.json")
             written_path = downloader.write_summary_report(summary_path, payload)
             self.assertTrue(os.path.isfile(written_path))
-            with open(written_path, "r", encoding="utf-8") as f:
+            with open(written_path, encoding="utf-8") as f:
                 loaded = json.load(f)
         self.assertEqual("github", loaded["provider"])
 
