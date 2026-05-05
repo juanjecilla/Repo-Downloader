@@ -126,7 +126,7 @@ class TestSentryUtils(unittest.TestCase):
 
     def test_initialize_sentry_when_sdk_not_installed(self):
         logger = _MemoryLogger()
-        modules_without_sentry = {k: v for k, v in sys.modules.items() if k != "sentry_sdk"}
+        _ = {k: v for k, v in sys.modules.items() if k != "sentry_sdk"}
         with patch.dict(os.environ, {"REPO_DOWNLOADER_SENTRY_DSN": "dsn-value"}, clear=True):
             with patch.dict(sys.modules, {"sentry_sdk": None}, clear=False):
                 result = sentry_utils.initialize_sentry(args=None, logger=logger)

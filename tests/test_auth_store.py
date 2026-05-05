@@ -89,7 +89,7 @@ class TestAuthStore(unittest.TestCase):
             f.write("{not valid json")
             path = f.name
         try:
-            payload = auth_store._load_payload(path=path)  # noqa: SLF001
+            payload = auth_store._load_payload(path=path)  # noqa: SLF001  # pylint: disable=protected-access
             self.assertEqual({"profiles": {}}, payload)
         finally:
             os.unlink(path)
@@ -102,7 +102,7 @@ class TestAuthStore(unittest.TestCase):
             json.dump([1, 2, 3], f)
             path = f.name
         try:
-            payload = auth_store._load_payload(path=path)  # noqa: SLF001
+            payload = auth_store._load_payload(path=path)  # noqa: SLF001  # pylint: disable=protected-access
             self.assertEqual({"profiles": {}}, payload)
         finally:
             os.unlink(path)
@@ -115,7 +115,7 @@ class TestAuthStore(unittest.TestCase):
             json.dump({"other": "data"}, f)
             path = f.name
         try:
-            payload = auth_store._load_payload(path=path)  # noqa: SLF001
+            payload = auth_store._load_payload(path=path)  # noqa: SLF001  # pylint: disable=protected-access
             self.assertIn("profiles", payload)
             self.assertIsInstance(payload["profiles"], dict)
         finally:
@@ -133,7 +133,7 @@ class TestAuthStore(unittest.TestCase):
 
         with patch.dict(sys.modules, {"keyring": None}):
             with self.assertRaises(ProviderConfigurationError):
-                auth_store._get_keyring_module()  # noqa: SLF001
+                auth_store._get_keyring_module()  # noqa: SLF001  # pylint: disable=protected-access
 
     def test_set_profile_secret_raises_for_empty_secret(self):
         from utils.errors import ProviderConfigurationError

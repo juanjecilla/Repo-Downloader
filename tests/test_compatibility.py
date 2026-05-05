@@ -45,7 +45,7 @@ class TestCompatibility(unittest.TestCase):
         self.assertEqual("unknown", compatibility.version_tuple_to_text(()))
 
     def test_normalize_version_pads_short_tuple(self):
-        result = compatibility._normalize_version((2, 30))  # noqa: SLF001
+        result = compatibility._normalize_version((2, 30))  # noqa: SLF001  # pylint: disable=protected-access
         self.assertEqual((2, 30, 0), result)
 
     def test_parse_git_version_returns_none_for_falsy_input(self):
@@ -53,7 +53,6 @@ class TestCompatibility(unittest.TestCase):
         self.assertIsNone(compatibility.parse_git_version(""))
 
     def test_detect_git_version_returns_none_when_git_missing(self):
-        import subprocess
         from unittest.mock import patch
 
         with patch("subprocess.check_output", side_effect=OSError("not found")):

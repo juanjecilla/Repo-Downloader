@@ -1,5 +1,4 @@
 import os
-import sys
 import tempfile
 import unittest
 from io import StringIO
@@ -61,7 +60,7 @@ class TestRunLoggerContextManager(unittest.TestCase):
         try:
             with RunLogger(log_file=path) as logger:
                 logger.event("inside", outcome="ok")
-            self.assertIsNone(logger._log_file_handle)  # noqa: SLF001
+            self.assertIsNone(logger._log_file_handle)  # noqa: SLF001  # pylint: disable=protected-access
         finally:
             os.unlink(path)
 
@@ -101,12 +100,12 @@ class TestRunLoggerEventRendering(unittest.TestCase):
 class TestRunLoggerSanitization(unittest.TestCase):
     def test_list_value_sanitized_per_item(self):
         logger = RunLogger()
-        result = logger._sanitize_value("values", ["a", "b"])  # noqa: SLF001
+        result = logger._sanitize_value("values", ["a", "b"])  # noqa: SLF001  # pylint: disable=protected-access
         self.assertEqual(["a", "b"], result)
 
     def test_list_containing_dict_with_sensitive_key_is_redacted(self):
         logger = RunLogger()
-        result = logger._sanitize_value("data", [{"token": "secret"}])  # noqa: SLF001
+        result = logger._sanitize_value("data", [{"token": "secret"}])  # noqa: SLF001  # pylint: disable=protected-access
         self.assertEqual([{"token": "***REDACTED***"}], result)
 
 
