@@ -113,6 +113,80 @@ class TestSentryUtils(unittest.TestCase):
         self.assertEqual("init_error", logger.events[0]["source"])
         self.assertIn("invalid DSN", logger.events[0]["message"])
 
+    def test_initialize_sentry_logs_success_when_logger_provided(self):
+        logger = _MemoryLogger()
+        fake_sdk = _FakeSentrySDK()
+        with patch.dict(os.environ, {"REPO_DOWNLOADER_SENTRY_DSN": "dsn-value"}, clear=True):
+            with patch.dict(sys.modules, {"sentry_sdk": fake_sdk}):
+                result = sentry_utils.initialize_sentry(args=None, logger=logger)
+
+        self.assertTrue(result["enabled"])
+        self.assertEqual(1, len(logger.events))
+        self.assertEqual("success", logger.events[0]["outcome"])
+
+    def test_initialize_sentry_when_sdk_not_installed(self):
+        logger = _MemoryLogger()
+        _ = {k: v for k, v in sys.modules.items() if k != "sentry_sdk"}
+        with patch.dict(os.environ, {"REPO_DOWNLOADER_SENTRY_DSN": "dsn-value"}, clear=True):
+            with patch.dict(sys.modules, {"sentry_sdk": None}, clear=False):
+                result = sentry_utils.initialize_sentry(args=None, logger=logger)
+
+        self.assertFalse(result["enabled"])
+
+    def test_initialize_sentry_skips_logs_success_without_logger(self):
+        fake_sdk = _FakeSentrySDK()
+        with patch.dict(os.environ, {"REPO_DOWNLOADER_SENTRY_DSN": "dsn-value"}, clear=True):
+            with patch.dict(sys.modules, {"sentry_sdk": fake_sdk}):
+                result = sentry_utils.initialize_sentry(args=None, logger=None)
+
+        self.assertTrue(result["enabled"])
+
+    def test_before_send_skips_non_string_message(self):
+        event = {"message": 42, "exception": {"values": []}}
+        result = sentry_utils._before_send(event, {})  # pylint: disable=protected-access
+        self.assertEqual(42, result["message"])
+
+    def test_before_send_skips_non_dict_exception_values(self):
+        event = {
+            "message": "ok",
+            "exception": {"values": ["not-a-dict", 99]},
+        }
+        result = sentry_utils._before_send(event, {})  # pylint: disable=protected-access
+        self.assertEqual(["not-a-dict", 99], result["exception"]["values"])
+
+    def test_before_send_skips_non_string_error_value(self):
+        event = {
+            "exception": {"values": [{"value": 404}]},
+        }
+        result = sentry_utils._before_send(event, {})  # pylint: disable=protected-access
+        self.assertEqual(404, result["exception"]["values"][0]["value"])
+
+    def test_set_sentry_tags_skips_none_values(self):
+        fake_sdk = _FakeSentrySDK()
+        with patch.dict(os.environ, {"REPO_DOWNLOADER_SENTRY_DSN": "dsn-value"}, clear=True):
+            with patch.dict(sys.modules, {"sentry_sdk": fake_sdk}):
+                sentry_utils.initialize_sentry(args=None)
+                sentry_utils.set_sentry_tags(command="backup", provider=None)
+
+        self.assertIn("command", fake_sdk.tags)
+        self.assertNotIn("provider", fake_sdk.tags)
+
+    def test_set_sentry_tags_no_op_when_sdk_missing(self):
+        sentry_utils._SENTRY_STATE["enabled"] = True  # pylint: disable=protected-access
+        try:
+            with patch.dict(sys.modules, {"sentry_sdk": None}):
+                sentry_utils.set_sentry_tags(command="backup")
+        finally:
+            sentry_utils._SENTRY_STATE["enabled"] = False  # pylint: disable=protected-access
+
+    def test_capture_exception_no_op_when_sdk_missing(self):
+        sentry_utils._SENTRY_STATE["enabled"] = True  # pylint: disable=protected-access
+        try:
+            with patch.dict(sys.modules, {"sentry_sdk": None}):
+                sentry_utils.capture_exception(RuntimeError("x"))
+        finally:
+            sentry_utils._SENTRY_STATE["enabled"] = False  # pylint: disable=protected-access
+
 
 if __name__ == "__main__":
     unittest.main()
