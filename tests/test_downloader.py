@@ -1639,8 +1639,6 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
     # --- _load_yaml_config error paths ---
 
     def test_load_yaml_config_oserror_raises_config_error(self):
-        from utils.errors import ProviderConfigurationError
-
         with patch("builtins.open", side_effect=OSError("permission denied")):
             with self.assertRaises(ProviderConfigurationError) as ctx:
                 downloader._load_yaml_config("/fake/path.yaml")  # pylint: disable=protected-access
@@ -1648,7 +1646,6 @@ class TestDownloader(unittest.TestCase):  # pylint: disable=too-many-public-meth
 
     def test_load_yaml_config_yaml_error_raises_config_error(self):
         import yaml
-        from utils.errors import ProviderConfigurationError
 
         bad_yaml = io.StringIO("key: [\nunclosed bracket")
         with patch("builtins.open", return_value=bad_yaml):
